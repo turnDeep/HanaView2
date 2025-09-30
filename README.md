@@ -116,3 +116,18 @@ sudo systemctl enable docker
     ```
 
 これでデプロイは完了です。ブラウザで `http://<VPSのIPアドレス>` または `http://<あなたのドメイン>` にアクセスすると、アプリケーションが表示されます。
+
+## 5. HWB Scannerの実行 (Running HWB Scanner)
+
+管理者は、HWB（High-Water Mark Breakout）スキャナーを手動で実行し、市場のブレイクアウト銘柄を特定できます。
+
+1.  **実行中のコンテナ内でbashセッションを開始します。**
+    ```bash
+    docker compose exec app bash
+    ```
+
+2.  **HWBスキャナーを実行します。**
+    コンテナ内で以下のコマンドを実行すると、スキャンが開始され、分析結果が出力されます。
+    ```bash
+    python -m backend.hwb_scanner_cli
+    ```
