@@ -46,6 +46,7 @@
             <button class="tab-button" data-tab="sp500">SP500</button>
             <button class="tab-button" data-tab="indicators">指標</button>
             <button class="tab-button" data-tab="column">コラム</button>
+            <button class="tab-button" data-tab="hwb200">200MA</button>
         </div>
 
         <main id="dashboard-content">
@@ -70,6 +71,27 @@
             </div>
             <div id="indicators-content" class="tab-pane"></div>
             <div id="column-content" class="tab-pane"></div>
+            <div id="hwb200-content" class="tab-pane">
+                <div class="hwb-controls">
+                    <button id="hwb-scan-btn" class="hwb-action-btn">
+                        📡 スキャン実行
+                    </button>
+                    <button id="hwb-refresh-btn" class="hwb-action-btn">
+                        🔄 データ更新
+                    </button>
+                    <div id="hwb-status" class="hwb-status-info"></div>
+                </div>
+                <div id="hwb-loading" class="loading-container" style="display: none;">
+                    <p>スキャン中...</p>
+                    <div class="loading-spinner"></div>
+                    <div id="hwb-progress"></div>
+                </div>
+                <div id="hwb-content">
+                    <div class="card">
+                        <p>データがありません。「スキャン実行」ボタンをクリックしてください。</p>
+                    </div>
+                </div>
+            </div>
         </main>
     </div>
     <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>

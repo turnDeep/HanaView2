@@ -17,3 +17,4 @@ httpx==0.25.2
 python-jose[cryptography]==3.3.0
 pywebpush==2.0.1
 cryptography==46.0.1
+mplfinance>=0.12.10b0

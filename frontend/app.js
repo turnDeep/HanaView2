@@ -19,7 +19,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const DB_VERSION = 1;
     const TOKEN_STORE_NAME = 'auth-tokens';
 
-    // --- NEW: Authentication Management (with IndexedDB support) ---
+    // --- Authentication Management (with IndexedDB support) ---
     class AuthManager {
         static TOKEN_KEY = 'auth_token';
         static EXPIRY_KEY = 'auth_expiry';
@@ -65,7 +65,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const token = localStorage.getItem(this.TOKEN_KEY);
             const expiry = localStorage.getItem(this.EXPIRY_KEY);
             if (!token || !expiry || Date.now() > parseInt(expiry)) {
-                if (token) this.clearAuthData(); // Clear if expired
+                if (token) this.clearAuthData();
                 return null;
             }
             return token;
@@ -75,7 +75,7 @@ document.addEventListener('DOMContentLoaded', () => {
             localStorage.removeItem(this.TOKEN_KEY);
             localStorage.removeItem(this.EXPIRY_KEY);
             try {
-                await this.setTokenInDB(null); // Remove from DB
+                await this.setTokenInDB(null);
                 console.log('Auth data cleared from localStorage and IndexedDB');
             } catch (error) {
                 console.error("Failed to clear token from IndexedDB:", error);
@@ -92,7 +92,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // --- NEW: Authenticated Fetch Wrapper ---
+    // --- Authenticated Fetch Wrapper ---
     async function fetchWithAuth(url, options = {}) {
         const authHeaders = AuthManager.getAuthHeaders();
         const response = await fetch(url, {
@@ -109,12 +109,11 @@ document.addEventListener('DOMContentLoaded', () => {
         return response;
     }
 
-    // --- Main App Logic (Updated) ---
+    // --- Main App Logic ---
 
     async function initializeApp() {
         try {
             if (AuthManager.isAuthenticated()) {
-                // Directly show the dashboard. The first data fetch will act as an auth check.
                 showDashboard();
             } else {
                 showAuthScreen();
@@ -124,7 +123,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.error('Error during authentication check:', error);
                 if (authErrorMessage) authErrorMessage.textContent = 'サーバーとの通信に失敗しました。';
             }
-            // Ensure auth screen is shown even on fetch failure
             showAuthScreen();
         }
     }
@@ -133,7 +131,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (authContainer) authContainer.style.display = 'none';
         if (dashboardContainer) dashboardContainer.style.display = 'block';
 
-        // Initialize NotificationManager every time. It's lightweight and ensures consistency.
         const notificationManager = new NotificationManager();
         notificationManager.init();
 
@@ -142,6 +139,12 @@ document.addEventListener('DOMContentLoaded', () => {
             initTabs();
             fetchDataAndRender();
             initSwipeNavigation();
+
+            // HWB200MAManagerの初期化（タブが存在する場合のみ）
+            if (document.getElementById('hwb200-content')) {
+                initHWB200MA();
+            }
+
             dashboardContainer.dataset.initialized = 'true';
         }
     }
@@ -225,21 +228,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    async function logout() {
-        await AuthManager.clearAuthData();
-        showAuthScreen();
-        console.log('Logged out successfully');
-        // The /api/auth/logout endpoint has been removed.
-        // Logout is now a client-side only operation.
-    }
-
     function setLoading(isLoading) {
         if (authLoadingSpinner) authLoadingSpinner.style.display = isLoading ? 'block' : 'none';
         const submitBtn = document.getElementById('auth-submit-button');
         if (submitBtn) submitBtn.style.display = isLoading ? 'none' : 'block';
     }
 
-    // --- Existing Dashboard Functions (Now using fetchWithAuth) ---
+    // --- Dashboard Functions ---
 
     async function fetchDataAndRender() {
         try {
@@ -255,28 +250,300 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // --- Service Worker Registration ---
-    if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-            navigator.serviceWorker.register('/sw.js')
-                .then(reg => console.log('Service Worker registered.', reg))
-                .catch(err => console.log('Service Worker registration failed: ', err));
-        });
-    }
-
     // --- Tab-switching logic ---
     function initTabs() {
         const tabContainer = document.querySelector('.tab-container');
         tabContainer.addEventListener('click', (e) => {
             if (!e.target.matches('.tab-button')) return;
             const targetTab = e.target.dataset.tab;
+
+            // Update active states
             document.querySelectorAll('.tab-button').forEach(b => b.classList.toggle('active', b.dataset.tab === targetTab));
             document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id === `${targetTab}-content`));
+
+            // HWB200タブがアクティブになった時にデータをロード
+            if (targetTab === 'hwb200' && window.hwb200Manager) {
+                window.hwb200Manager.loadData();
+            }
+
             setTimeout(() => window.scrollTo(0, 0), 0);
         });
     }
 
-    // --- Date Formatting Helper ---
+    // --- HWB 200MA Manager ---
+    function initHWB200MA() {
+        window.hwb200Manager = new HWB200MAManager();
+        console.log('HWB200MAManager initialized');
+    }
+
+    class HWB200MAManager {
+        constructor() {
+            this.data = null;
+            this.isScanning = false;
+            this.initEventListeners();
+        }
+
+        initEventListeners() {
+            const scanBtn = document.getElementById('hwb-scan-btn');
+            if (scanBtn) {
+                scanBtn.addEventListener('click', () => this.startScan());
+            }
+
+            const refreshBtn = document.getElementById('hwb-refresh-btn');
+            if (refreshBtn) {
+                refreshBtn.addEventListener('click', () => this.refreshData());
+            }
+        }
+
+        async startScan() {
+            if (this.isScanning) return;
+
+            const scanBtn = document.getElementById('hwb-scan-btn');
+            const loadingDiv = document.getElementById('hwb-loading');
+            const contentDiv = document.getElementById('hwb-content');
+
+            this.isScanning = true;
+            scanBtn.disabled = true;
+            scanBtn.textContent = 'スキャン中...';
+            loadingDiv.style.display = 'block';
+            contentDiv.style.display = 'none';
+
+            try {
+                const response = await fetchWithAuth('/api/hwb/scan', {
+                    method: 'POST'
+                });
+
+                if (!response.ok) throw new Error('スキャン開始に失敗しました');
+
+                const result = await response.json();
+
+                if (result.success) {
+                    this.showStatus(`✅ ${result.message}`);
+                    setTimeout(() => this.loadData(), 2000);
+                } else {
+                    throw new Error(result.message || 'スキャンエラー');
+                }
+
+            } catch (error) {
+                console.error('HWBスキャンエラー:', error);
+                this.showStatus(`❌ エラー: ${error.message}`, 'error');
+            } finally {
+                this.isScanning = false;
+                scanBtn.disabled = false;
+                scanBtn.textContent = '📡 スキャン実行';
+                loadingDiv.style.display = 'none';
+                contentDiv.style.display = 'block';
+            }
+        }
+
+        async refreshData() {
+            await this.loadData();
+        }
+
+        async loadData() {
+            try {
+                const statusResponse = await fetchWithAuth('/api/hwb/status');
+                const status = await statusResponse.json();
+
+                if (!status.has_data) {
+                    this.showStatus('データがありません。スキャンを実行してください。', 'warning');
+                    document.getElementById('hwb-content').innerHTML =
+                        '<div class="card"><p>データがありません。「スキャン実行」ボタンをクリックしてください。</p></div>';
+                    return;
+                }
+
+                this.showStatus(
+                    `最終スキャン: ${status.last_scan} | ` +
+                    `${status.total_scanned}銘柄スキャン | ` +
+                    `シグナル: ${status.signals_count}件 | ` +
+                    `候補: ${status.candidates_count}件`
+                );
+
+                const dataResponse = await fetchWithAuth('/api/hwb/data');
+                this.data = await dataResponse.json();
+
+                this.render();
+
+            } catch (error) {
+                console.error('HWBデータ読み込みエラー:', error);
+                this.showStatus('❌ データ読み込みエラー', 'error');
+            }
+        }
+
+        render() {
+            if (!this.data) return;
+
+            const container = document.getElementById('hwb-content');
+            container.innerHTML = '';
+
+            this.renderSummary(container);
+
+            if (this.data.signals && this.data.signals.length > 0) {
+                this.renderSignalCharts(container);
+            }
+
+            if (this.data.candidates && this.data.candidates.length > 0) {
+                this.renderCandidateCharts(container);
+            }
+        }
+
+        renderSummary(container) {
+            const summaryDiv = document.createElement('div');
+            summaryDiv.className = 'hwb-summary';
+
+            const summary = this.data.summary || {};
+            const scanDate = this.data.scan_date || '';
+            const scanTime = this.data.scan_time || '';
+
+            summaryDiv.innerHTML = `
+                <h2>🤖 AI判定システム - HWB Strategy</h2>
+                <div class="scan-info">
+                    スキャン日時: ${scanDate} ${scanTime} |
+                    処理銘柄: ${this.data.total_scanned || 0}
+                </div>
+
+                <div class="hwb-summary-section">
+                    <h3>🚀 当日シグナル（ブレイクアウト）</h3>
+                    <div class="hwb-ticker-list">
+                        ${this.renderTickers(summary.today_signals || [], 'signal')}
+                    </div>
+                </div>
+
+                <div class="hwb-summary-section">
+                    <h3>📍 監視候補（FVG検出）</h3>
+                    <div class="hwb-ticker-list">
+                        ${this.renderTickers(summary.monitoring_candidates || [], 'candidate')}
+                    </div>
+                </div>
+
+                <div class="hwb-summary-section">
+                    <h3>📈 直近シグナル（3営業日以内）</h3>
+                    <div class="hwb-ticker-list">
+                        ${this.renderRecentSignals(summary.recent_signals || {})}
+                    </div>
+                </div>
+            `;
+
+            container.appendChild(summaryDiv);
+        }
+
+        renderTickers(tickers, type) {
+            if (tickers.length === 0) return '<span style="color: #999;">なし</span>';
+
+            return tickers.slice(0, 20).map(ticker =>
+                `<span class="hwb-ticker ${type}">${ticker}</span>`
+            ).join('');
+        }
+
+        renderRecentSignals(signals) {
+            const items = [];
+            for (const [days, tickers] of Object.entries(signals)) {
+                if (tickers && tickers.length > 0) {
+                    tickers.forEach(ticker => {
+                        items.push(`<span class="hwb-ticker recent">${ticker} (${days}日前)</span>`);
+                    });
+                }
+            }
+            return items.length > 0 ? items.join('') : '<span style="color: #999;">なし</span>';
+        }
+
+        renderSignalCharts(container) {
+            const section = document.createElement('div');
+            section.className = 'hwb-charts-section';
+            section.innerHTML = '<h2>🚀 当日シグナル - 詳細チャート</h2>';
+
+            const grid = document.createElement('div');
+            grid.className = 'hwb-chart-grid';
+
+            const signals = this.data.signals || [];
+            signals.forEach(signal => {
+                const chartCard = this.createChartCard(signal);
+                if (chartCard) grid.appendChild(chartCard);
+            });
+
+            section.appendChild(grid);
+            container.appendChild(section);
+        }
+
+        renderCandidateCharts(container) {
+            const section = document.createElement('div');
+            section.className = 'hwb-charts-section';
+            section.innerHTML = '<h2>📍 監視候補 - 詳細チャート</h2>';
+
+            const grid = document.createElement('div');
+            grid.className = 'hwb-chart-grid';
+
+            const candidates = (this.data.candidates || []).slice(0, 10);
+            candidates.forEach(candidate => {
+                const chartCard = this.createChartCard(candidate);
+                if (chartCard) grid.appendChild(chartCard);
+            });
+
+            section.appendChild(grid);
+            container.appendChild(section);
+        }
+
+        createChartCard(signal) {
+            const card = document.createElement('div');
+            card.className = 'hwb-chart-card';
+
+            const scoreClass = signal.score >= 80 ? 'high' :
+                              signal.score >= 60 ? 'medium' : 'low';
+
+            const signalType = signal.signal_type === 's2_breakout' ?
+                              'ブレイクアウト' : 'FVG検出';
+
+            let infoText = '';
+            if (signal.setup) {
+                infoText += `Setup: ${signal.setup.date} `;
+            }
+            if (signal.fvg) {
+                infoText += `| FVG: ${signal.fvg.gap_percentage?.toFixed(2)}% `;
+            }
+            if (signal.breakout) {
+                infoText += `| Breakout: +${signal.breakout.percentage?.toFixed(2)}%`;
+            }
+
+            card.innerHTML = `
+                <div class="hwb-chart-header">
+                    <span class="hwb-chart-symbol">${signal.symbol}</span>
+                    <span class="hwb-chart-score ${scoreClass}">Score: ${signal.score}/100</span>
+                </div>
+                <div class="hwb-chart-info">
+                    <span>${signalType}</span>
+                    <span>${infoText}</span>
+                </div>
+            `;
+
+            if (signal.chart || this.data.charts?.[signal.symbol]) {
+                const img = document.createElement('img');
+                img.className = 'hwb-chart-image';
+                img.src = signal.chart || this.data.charts[signal.symbol];
+                img.alt = `${signal.symbol} chart`;
+                card.appendChild(img);
+            }
+
+            return card;
+        }
+
+        showStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('hwb-status');
+            if (statusDiv) {
+                statusDiv.textContent = message;
+                statusDiv.className = `hwb-status-info ${type}`;
+
+                if (type === 'error') {
+                    statusDiv.style.color = '#dc3545';
+                } else if (type === 'warning') {
+                    statusDiv.style.color = '#ffc107';
+                } else {
+                    statusDiv.style.color = 'var(--text-secondary)';
+                }
+            }
+        }
+    }
+
+    // --- Existing rendering functions (unchanged) ---
     function formatDateForDisplay(dateInput) {
         if (!dateInput) return '';
         try {
@@ -286,7 +553,6 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) { return ''; }
     }
 
-    // --- Rendering Functions (Unchanged) ---
     function renderLightweightChart(containerId, data, title) {
         const container = document.getElementById(containerId);
         if (!container || !data || data.length === 0) {
@@ -301,6 +567,7 @@ document.addEventListener('DOMContentLoaded', () => {
         chart.timeScale().fitContent();
         new ResizeObserver(entries => { if (entries.length > 0 && entries[0].contentRect.width > 0) { chart.applyOptions({ width: entries[0].contentRect.width }); } }).observe(container);
     }
+
     function renderMarketOverview(container, marketData, lastUpdated) {
         if (!container) return;
         container.innerHTML = '';
@@ -315,6 +582,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (marketData.vix && marketData.vix.history) { renderLightweightChart('vix-chart-container', marketData.vix.history, 'VIX'); }
         if (marketData.t_note_future && marketData.t_note_future.history) { renderLightweightChart('t-note-chart-container', marketData.t_note_future.history, '10y T-Note'); }
     }
+
     function renderNews(container, newsData, lastUpdated) {
         if (!container || !newsData || (!newsData.summary && (!newsData.topics || newsData.topics.length === 0))) { container.innerHTML = '<div class="card"><p>ニュースデータがありません。</p></div>'; return; }
         container.innerHTML = '';
@@ -355,7 +623,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         container.appendChild(card);
     }
+
     function getPerformanceColor(p) { if (p >= 3) return '#00c853'; if (p > 1) return '#66bb6a'; if (p > 0) return '#2e7d32'; if (p == 0) return '#888888'; if (p > -1) return '#e53935'; if (p > -3) return '#ef5350'; return '#c62828'; }
+
     function renderGridHeatmap(container, title, heatmapData) {
         if (!container) return;
         container.innerHTML = '';
@@ -387,6 +657,7 @@ document.addEventListener('DOMContentLoaded', () => {
         card.appendChild(heatmapWrapper);
         container.appendChild(card);
     }
+
     function renderIndicators(container, indicatorsData) {
         if (!container) return;
         container.innerHTML = '';
@@ -406,6 +677,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (earnings_commentary) { const div = document.createElement('div'); div.className = 'ai-commentary'; div.innerHTML = `<div class="ai-header"><h3>AI解説</h3></div><p>${earnings_commentary.replace(/\n/g, '<br>')}</p>`; earningsCard.appendChild(div); }
         container.appendChild(earningsCard);
     }
+
     function renderColumn(container, columnData) {
         if (!container) return;
         container.innerHTML = '';
@@ -414,6 +686,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (report && report.content) { const card = document.createElement('div'); card.className = 'card'; const dateHtml = formatDateForDisplay(report.date) ? `<p class="ai-date">${formatDateForDisplay(report.date)}</p>` : ''; card.innerHTML = `<div class="column-container"><div class="ai-header"><h3>${report.title || 'AI解説'}</h3>${dateHtml}</div><div class="column-content">${report.content.replace(/\n/g, '<br>')}</div></div>`; container.appendChild(card); }
         else { container.innerHTML = `<div class="card"><p>${report && report.error ? '生成が失敗しました。' : 'AI解説はまだありません。（月曜日に週間分、火〜金曜日に当日分が生成されます）'}</p></div>`; }
     }
+
     function renderHeatmapCommentary(container, commentary, lastUpdated) {
         if (!container || !commentary) return;
         const card = document.createElement('div');
@@ -422,6 +695,7 @@ document.addEventListener('DOMContentLoaded', () => {
         card.innerHTML = `<div class="ai-commentary"><div class="ai-header"><h3>AI解説</h3>${dateHtml}</div><p>${commentary.replace(/\n/g, '<br>')}</p></div>`;
         container.appendChild(card);
     }
+
     function renderAllData(data) {
         console.log("Rendering all data:", data);
         const lastUpdatedEl = document.getElementById('last-updated');
@@ -440,60 +714,40 @@ document.addEventListener('DOMContentLoaded', () => {
         renderColumn(document.getElementById('column-content'), data.column);
     }
 
-    // --- Swipe Navigation ---
+    // --- Swipe Navigation (unchanged) ---
     function initSwipeNavigation() {
         const contentArea = document.getElementById('dashboard-content');
-
         let touchstartX = 0;
         let touchstartY = 0;
         let hasScrolledVertically = false;
-        const verticalScrollThreshold = 10; // 垂直スクロールと判定する最小移動量
-        const horizontalSwipeThreshold = 100; // 水平スワイプと判定する最小移動量
-
+        const verticalScrollThreshold = 10;
+        const horizontalSwipeThreshold = 100;
         contentArea.addEventListener('touchstart', e => {
             touchstartX = e.touches[0].screenX;
             touchstartY = e.touches[0].screenY;
-            hasScrolledVertically = false; // タッチ開始時にリセット
+            hasScrolledVertically = false;
         }, { passive: true });
-
         contentArea.addEventListener('touchmove', e => {
-            // すでに垂直スクロールと判定されていたら、何もしない
-            if (hasScrolledVertically) {
-                return;
-            }
-
+            if (hasScrolledVertically) return;
             const touchmoveY = e.touches[0].screenY;
             const deltaY = Math.abs(touchmoveY - touchstartY);
-
-            // Y方向の移動が閾値を超えたら、垂直スクロールと判定
             if (deltaY > verticalScrollThreshold) {
                 hasScrolledVertically = true;
             }
         }, { passive: true });
-
         contentArea.addEventListener('touchend', e => {
-            // 垂直スクロールがあった場合は、横スワイプ処理を一切行わない
-            if (hasScrolledVertically) {
-                return;
-            }
-
+            if (hasScrolledVertically) return;
             const touchendX = e.changedTouches[0].screenX;
             const deltaX = touchendX - touchstartX;
-
-            // 水平方向の移動が閾値を超えた場合のみ、横スワイプと判定
             if (Math.abs(deltaX) > horizontalSwipeThreshold) {
                 const tabButtons = Array.from(document.querySelectorAll('.tab-button'));
                 const currentIndex = tabButtons.findIndex(b => b.classList.contains('active'));
-
-                // 右スワイプ（Xが増加）なら左のタブへ、左スワイプ（Xが減少）なら右のタブへ
                 let nextIndex = (deltaX > 0) ? currentIndex - 1 : currentIndex + 1;
-
                 if (nextIndex < 0) {
                     nextIndex = tabButtons.length - 1;
                 } else if (nextIndex >= tabButtons.length) {
                     nextIndex = 0;
                 }
-
                 if (tabButtons[nextIndex]) {
                     tabButtons[nextIndex].click();
                 }
@@ -501,40 +755,34 @@ document.addEventListener('DOMContentLoaded', () => {
         }, { passive: true });
     }
 
-    // --- Auto Reload Function ---
+    // --- Auto Reload Function (unchanged) ---
     function setupAutoReload() {
         const LAST_RELOAD_KEY = 'lastAutoReloadDate';
-
         setInterval(() => {
             const now = new Date();
-            const day = now.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+            const day = now.getDay();
             const hours = now.getHours();
             const minutes = now.getMinutes();
-
-            // 平日（月〜金）かどうかをチェック
             const isWeekday = day >= 1 && day <= 5;
-
-            // 午前6時30分であるかをチェック
             const isReloadTime = hours === 6 && minutes === 30;
-
             if (isWeekday && isReloadTime) {
-                const today = now.toISOString().split('T')[0]; // YYYY-MM-DD形式の日付を取得
+                const today = now.toISOString().split('T')[0];
                 const lastReloadDate = localStorage.getItem(LAST_RELOAD_KEY);
-
                 if (lastReloadDate !== today) {
                     console.log('Auto-reloading page at 6:30 on a weekday...');
                     localStorage.setItem(LAST_RELOAD_KEY, today);
                     location.reload();
                 }
             }
-        }, 60000); // 1分ごとにチェック
+        }, 60000);
     }
 
     // --- App Initialization ---
     initializeApp();
-    setupAutoReload(); // 自動リロード設定を有効化
+    setupAutoReload();
 });
 
+// --- NotificationManager (unchanged) ---
 class NotificationManager {
     constructor() {
         this.isSupported = 'Notification' in window && 'serviceWorker' in navigator && 'PushManager' in window;
@@ -546,10 +794,7 @@ class NotificationManager {
             console.log('Push notifications are not supported');
             return;
         }
-
         console.log('Initializing NotificationManager...');
-
-        // VAPID公開鍵を取得（認証不要）
         try {
             const response = await fetch('/api/vapid-public-key');
             const data = await response.json();
@@ -559,14 +804,10 @@ class NotificationManager {
             console.error('Failed to get VAPID public key:', error);
             return;
         }
-
-        // 通知権限を確認・要求
         const permission = await this.requestPermission();
         if (permission) {
             await this.subscribeUser();
         }
-
-        // Service Workerメッセージリスナー
         navigator.serviceWorker.addEventListener('message', event => {
             if (event.data.type === 'data-updated' && event.data.data) {
                 console.log('Data updated via push notification');
@@ -587,27 +828,18 @@ class NotificationManager {
     async subscribeUser() {
         try {
             const registration = await navigator.serviceWorker.ready;
-
-            // 既存のサブスクリプションをチェック
             let subscription = await registration.pushManager.getSubscription();
-
             if (!subscription) {
-                // 新規作成
                 const convertedVapidKey = this.urlBase64ToUint8Array(this.vapidPublicKey);
                 subscription = await registration.pushManager.subscribe({
                     userVisibleOnly: true,
                     applicationServerKey: convertedVapidKey
                 });
             }
-
-            // サーバーに送信（クッキーが自動的に送信される！）
             await this.sendSubscriptionToServer(subscription);
-
-            // Background sync登録
             if ('sync' in registration) {
                 await registration.sync.register('data-sync');
             }
-
         } catch (error) {
             console.error('Failed to subscribe user:', error);
         }
@@ -615,23 +847,19 @@ class NotificationManager {
 
     async sendSubscriptionToServer(subscription) {
         try {
-            // クッキーベースなので、通常のfetchで問題ない
             const response = await fetch('/api/subscribe', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                credentials: 'include',  // クッキーを送信
+                credentials: 'include',
                 body: JSON.stringify(subscription)
             });
-
             if (!response.ok) {
                 throw new Error(`Server returned ${response.status}`);
             }
-
             const result = await response.json();
             console.log('Push subscription registered:', result);
-
         } catch (error) {
             console.error('Error sending subscription to server:', error);
         }
@@ -642,10 +870,8 @@ class NotificationManager {
         const base64 = (base64String + padding)
             .replace(/\-/g, '+')
             .replace(/_/g, '/');
-
         const rawData = window.atob(base64);
         const outputArray = new Uint8Array(rawData.length);
-
         for (let i = 0; i < rawData.length; ++i) {
             outputArray[i] = rawData.charCodeAt(i);
         }
@@ -668,9 +894,7 @@ class NotificationManager {
             z-index: 10000;
             animation: slideIn 0.3s ease-out;
         `;
-
         document.body.appendChild(toast);
-
         setTimeout(() => {
             toast.style.animation = 'slideOut 0.3s ease-out';
             setTimeout(() => {
