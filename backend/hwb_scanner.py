@@ -675,3 +675,87 @@ async def run_hwb_scan(progress_callback=None):
     logger.info(f"スキャン結果を保存: {output_path}")
 
     return result
+
+async def analyze_single_ticker(symbol: str) -> Optional[Dict]:
+    """単一銘柄の分析を実行"""
+    try:
+        # HWBScannerの主要コンポーネントを初期化
+        db_manager = HWBDatabaseManager(DB_PATH)
+        analyzer = HWBAnalyzer(db_manager)
+
+        # データ取得
+        df_daily, df_weekly = analyzer.get_stock_data(symbol)
+        if df_daily is None or df_weekly is None:
+            logger.info(f"No data for symbol: {symbol}")
+            return None
+
+        # ルール① トレンドチェック
+        if not analyzer.check_rule1(df_daily, df_weekly):
+            logger.info(f"Trend check failed for {symbol}")
+            return None
+
+        # ルール② セットアップ検出
+        setups = analyzer.find_setups(df_daily)
+        if not setups:
+            logger.info(f"No setups found for {symbol}")
+            return None
+
+        # 最新のセットアップから順に評価
+        for setup in reversed(setups):
+            # ルール③ FVG検出
+            fvgs = analyzer.detect_fvg(df_daily, setup['date'])
+            if not fvgs:
+                continue
+
+            # 最新のFVGを評価
+            fvg = fvgs[-1]
+
+            # ルール④ ブレイクアウトチェック
+            breakout = analyzer.check_breakout(df_daily, setup, fvg)
+
+            # ダミースコア計算クラス
+            class DummyScanner:
+                def _calculate_score(self, setup, fvg, breakout):
+                    return HWBScanner()._calculate_score(setup, fvg, breakout)
+
+            score = DummyScanner()._calculate_score(setup, fvg, breakout)
+
+            # シグナルの種類を決定
+            signal_type = 's2_breakout' if breakout else 's1_fvg'
+
+            # チャート生成
+            chart = analyzer.create_chart_base64(
+                symbol, df_daily, signal_type, setup, fvg, breakout
+            )
+
+            # 結果を整形
+            result = {
+                'symbol': symbol,
+                'signal_type': signal_type,
+                'score': score,
+                'setup': {
+                    'date': setup['date'].strftime('%Y-%m-%d'),
+                    'zone_width': (setup['zone_upper'] - setup['zone_lower']) / setup['close']
+                },
+                'fvg': {
+                    'date': fvg['formation_date'].strftime('%Y-%m-%d'),
+                    'gap_percentage': fvg['gap_percentage']
+                },
+                'breakout': None,
+                'chart': chart
+            }
+
+            if breakout:
+                result['breakout'] = {
+                    'date': breakout['breakout_date'].strftime('%Y-%m-%d'),
+                    'percentage': breakout['breakout_percentage']
+                }
+
+            return result
+
+        logger.info(f"No actionable signal found for {symbol} after checking all setups.")
+        return None
+
+    except Exception as e:
+        logger.error(f"Error analyzing single ticker {symbol}: {e}")
+        return None

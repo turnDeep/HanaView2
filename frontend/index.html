@@ -73,19 +73,17 @@
             <div id="column-content" class="tab-pane"></div>
             <div id="hwb200-content" class="tab-pane">
                 <div class="hwb-controls">
-                    <button id="hwb-scan-btn" class="hwb-action-btn">
-                        📡 スキャン実行
-                    </button>
-                    <button id="hwb-refresh-btn" class="hwb-action-btn">
-                        🔄 データ更新
+                    <input type="text" id="hwb-ticker-input" class="hwb-ticker-input" placeholder="ティッカーを入力 (例: AAPL)">
+                    <button id="hwb-analyze-btn" class="hwb-action-btn">
+                        分析
                     </button>
                     <div id="hwb-status" class="hwb-status-info"></div>
                 </div>
                 <div id="hwb-loading" class="loading-container" style="display: none;">
-                    <p>スキャン中...</p>
+                    <p>分析中...</p>
                     <div class="loading-spinner"></div>
-                    <div id="hwb-progress"></div>
                 </div>
+                <div id="hwb-analysis-content"></div>
                 <div id="hwb-content">
                     <div class="card">
                         <p>データがありません。「スキャン実行」ボタンをクリックしてください。</p>

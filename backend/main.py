@@ -15,7 +15,7 @@ from typing import Dict, Any, Optional
 from .security_manager import security_manager
 
 # 既存のインポートに追加
-from .hwb_scanner import run_hwb_scan
+from .hwb_scanner import run_hwb_scan, analyze_single_ticker
 import asyncio
 
 # Load environment variables from .env file
@@ -352,6 +352,31 @@ def get_hwb_status(current_user: str = Depends(get_current_user)):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/hwb/analyze_ticker")
+async def analyze_ticker(ticker: str, current_user: str = Depends(get_current_user)):
+    """単一銘柄のHWB分析を実行"""
+    if not ticker:
+        raise HTTPException(status_code=400, detail="Ticker symbol is required")
+
+    try:
+        # ティッカーシンボルを大文字に変換し、不要なスペースを削除
+        symbol = ticker.strip().upper()
+
+        analysis_result = await analyze_single_ticker(symbol)
+
+        if analysis_result is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No analysis data found for {symbol}. It might not meet the initial criteria or a signal is not currently present."
+            )
+
+        return analysis_result
+
+    except Exception as e:
+        # 予期せぬエラーのログ出力
+        print(f"Error analyzing ticker {ticker}: {e}")
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred while analyzing {ticker}.")
 
 # Mount the frontend directory to serve static files
 # This must come AFTER all API routes
