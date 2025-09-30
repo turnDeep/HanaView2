@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>朝の５分市況チェック</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#00c853"/>
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+</head>
+<body>
+    <div id="auth-container" class="auth-container">
+        <div class="auth-box">
+            <h2>認証が必要です</h2>
+            <p>6桁の認証コードを入力してください</p>
+            <div id="pin-inputs" class="pin-inputs">
+                <input type="tel" maxlength="1" pattern="[0-9]" required>
+                <input type="tel" maxlength="1" pattern="[0-9]" required>
+                <input type="tel" maxlength="1" pattern="[0-9]" required>
+                <input type="tel" maxlength="1" pattern="[0-9]" required>
+                <input type="tel" maxlength="1" pattern="[0-9]" required>
+                <input type="tel" maxlength="1" pattern="[0-9]" required>
+            </div>
+            <p id="auth-error-message" class="error-message"></p>
+            <button id="auth-submit-button" class="auth-button">認証</button>
+            <div id="auth-loading" class="loading-spinner" style="display: none;"></div>
+        </div>
+    </div>
+    <div class="container" style="display: none;">
+        <header class="header">
+            <h1>朝の<span style="color: #FF00A5;">５分</span>市況チェック</h1>
+            <p class="last-updated" id="last-updated">Last updated: --</p>
+        <!-- 通知設定ボタンを追加 -->
+        <button id="notification-setup-btn" class="notification-btn" style="display: none;">
+            🔔 通知を有効にする
+        </button>
+        <span id="notification-status" class="notification-status"></span>
+        </header>
+
+        <div class="tab-container">
+            <button class="tab-button active" data-tab="market">市況</button>
+            <button class="tab-button" data-tab="news">ニュース</button>
+            <button class="tab-button" data-tab="nasdaq">Nasdaq</button>
+            <button class="tab-button" data-tab="sp500">SP500</button>
+            <button class="tab-button" data-tab="indicators">指標</button>
+            <button class="tab-button" data-tab="column">コラム</button>
+        </div>
+
+        <main id="dashboard-content">
+            <div id="market-content" class="tab-pane active">
+                <div class="loading-container">
+                    <p>Loading market data...</p>
+                    <div class="loading-spinner"></div>
+                </div>
+            </div>
+            <div id="news-content" class="tab-pane"></div>
+            <div id="nasdaq-content" class="tab-pane">
+                <div id="nasdaq-heatmap-1d"></div>
+                <div id="nasdaq-heatmap-1w"></div>
+                <div id="nasdaq-heatmap-1m"></div>
+                <div id="nasdaq-commentary"></div>
+            </div>
+            <div id="sp500-content" class="tab-pane">
+                <div id="sp500-heatmap-1d"></div>
+                <div id="sp500-heatmap-1w"></div>
+                <div id="sp500-heatmap-1m"></div>
+                <div id="sp500-commentary"></div>
+            </div>
+            <div id="indicators-content" class="tab-pane"></div>
+            <div id="column-content" class="tab-pane"></div>
+        </main>
+    </div>
+    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="app.js"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js')
+                    .then(registration => {
+                        console.log('Service Worker registered with scope:', registration.scope);
+                    })
+                    .catch(error => {
+                        console.error('Service Worker registration failed:', error);
+                    });
+            });
+        }
+    </script>
+</body>
+</html>
