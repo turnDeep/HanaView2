@@ -279,66 +279,99 @@ document.addEventListener('DOMContentLoaded', () => {
     class HWB200MAManager {
         constructor() {
             this.data = null;
-            this.isScanning = false;
+            this.isAnalysisView = false;
             this.initEventListeners();
         }
 
         initEventListeners() {
-            const scanBtn = document.getElementById('hwb-scan-btn');
-            if (scanBtn) {
-                scanBtn.addEventListener('click', () => this.startScan());
-            }
-
-            const refreshBtn = document.getElementById('hwb-refresh-btn');
-            if (refreshBtn) {
-                refreshBtn.addEventListener('click', () => this.refreshData());
+            const analyzeBtn = document.getElementById('hwb-analyze-btn');
+            if (analyzeBtn) {
+                analyzeBtn.addEventListener('click', () => {
+                    if (this.isAnalysisView) {
+                        this.resetView();
+                    } else {
+                        this.analyzeTicker();
+                    }
+                });
             }
         }
 
-        async startScan() {
-            if (this.isScanning) return;
+        async analyzeTicker() {
+            const tickerInput = document.getElementById('hwb-ticker-input');
+            const ticker = tickerInput.value.trim().toUpperCase();
 
-            const scanBtn = document.getElementById('hwb-scan-btn');
+            if (!ticker) {
+                this.showStatus('ティッカーを入力してください。', 'error');
+                return;
+            }
+
             const loadingDiv = document.getElementById('hwb-loading');
-            const contentDiv = document.getElementById('hwb-content');
+            const analysisContentDiv = document.getElementById('hwb-analysis-content');
+            const summaryContentDiv = document.getElementById('hwb-content');
+            const analyzeBtn = document.getElementById('hwb-analyze-btn');
 
-            this.isScanning = true;
-            scanBtn.disabled = true;
-            scanBtn.textContent = 'スキャン中...';
             loadingDiv.style.display = 'block';
-            contentDiv.style.display = 'none';
+            analysisContentDiv.innerHTML = '';
+            summaryContentDiv.style.display = 'none';
+            analyzeBtn.disabled = true;
+            this.showStatus(`「${ticker}」を分析中...`);
 
             try {
-                const response = await fetchWithAuth('/api/hwb/scan', {
-                    method: 'POST'
-                });
-
-                if (!response.ok) throw new Error('スキャン開始に失敗しました');
-
+                const response = await fetchWithAuth(`/api/hwb/analyze_ticker?ticker=${ticker}`);
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || `分析エラー: ${response.statusText}`);
+                }
                 const result = await response.json();
 
-                if (result.success) {
-                    this.showStatus(`✅ ${result.message}`);
-                    setTimeout(() => this.loadData(), 2000);
-                } else {
-                    throw new Error(result.message || 'スキャンエラー');
-                }
+                // 分析結果を描画
+                this.renderSingleAnalysis(analysisContentDiv, result);
+                analysisContentDiv.style.display = 'block';
+
+                // UIをリセットモードに切り替え
+                this.isAnalysisView = true;
+                analyzeBtn.textContent = 'リセット';
+                this.showStatus(`✅ 「${ticker}」の分析結果`, 'info');
 
             } catch (error) {
-                console.error('HWBスキャンエラー:', error);
+                console.error('Ticker analysis error:', error);
                 this.showStatus(`❌ エラー: ${error.message}`, 'error');
+                // エラー時はサマリーを再表示
+                summaryContentDiv.style.display = 'block';
             } finally {
-                this.isScanning = false;
-                scanBtn.disabled = false;
-                scanBtn.textContent = '📡 スキャン実行';
                 loadingDiv.style.display = 'none';
-                contentDiv.style.display = 'block';
+                analyzeBtn.disabled = false;
             }
         }
 
-        async refreshData() {
-            await this.loadData();
+        resetView() {
+            const tickerInput = document.getElementById('hwb-ticker-input');
+            const analysisContentDiv = document.getElementById('hwb-analysis-content');
+            const summaryContentDiv = document.getElementById('hwb-content');
+            const analyzeBtn = document.getElementById('hwb-analyze-btn');
+
+            this.isAnalysisView = false;
+
+            tickerInput.value = '';
+            analysisContentDiv.innerHTML = '';
+            analysisContentDiv.style.display = 'none';
+            summaryContentDiv.style.display = 'block';
+            analyzeBtn.textContent = '分析';
+
+            this.showStatus(''); // ステータスメッセージをクリア
+            this.loadData(); // 元のデータを再表示
         }
+
+        renderSingleAnalysis(container, analysisData) {
+            container.innerHTML = ''; // Clear previous content
+            const card = this.createChartCard(analysisData);
+            if (card) {
+                container.appendChild(card);
+            } else {
+                container.innerHTML = `<div class="card"><p>分析結果の表示に失敗しました。</p></div>`;
+            }
+        }
+
 
         async loadData() {
             try {
