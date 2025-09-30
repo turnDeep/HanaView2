@@ -15,7 +15,7 @@ from typing import Dict, Any, Optional
 from .security_manager import security_manager
 
 # 既存のインポートに追加
-from .hwb_scanner import run_hwb_scan, analyze_single_ticker
+from .hwb_scanner import run_hwb_scan
 import asyncio
 
 # Load environment variables from .env file
@@ -136,6 +136,9 @@ async def get_current_user_for_notification(
         return username
     except JWTError:
         raise HTTPException(status_code=401, detail="Token validation failed")
+
+from .notifier import send_push_notification_to_all
+
 
 # --- API Endpoints ---
 
@@ -288,16 +291,27 @@ async def send_notification(
 async def trigger_hwb_scan(current_user: str = Depends(get_current_user)):
     """HWBスキャンを手動実行（管理者のみ）"""
     try:
-        # 非同期でスキャン実行
+        # Run the scan asynchronously
         result = await run_hwb_scan()
+
+        # Send push notification on completion
+        await send_push_notification_to_all(
+            title="HWB Analysis Complete",
+            body=f"Daily scan finished. Found {len(result.get('signals', []))} signals and {len(result.get('candidates', []))} candidates."
+        )
 
         return {
             "success": True,
-            "message": f"スキャン完了: {result['summary']['today_signals']}件のシグナル検出",
-            "scan_date": result['scan_date'],
-            "scan_time": result['scan_time']
+            "message": f"Scan completed: {len(result.get('signals', []))} signals found.",
+            "scan_date": result.get('scan_date'),
+            "scan_time": result.get('scan_time')
         }
     except Exception as e:
+        # Optionally send a failure notification
+        await send_push_notification_to_all(
+            title="HWB Analysis Failed",
+            body="The daily scan encountered an error and could not complete."
+        )
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/hwb/data")
@@ -355,28 +369,54 @@ def get_hwb_status(current_user: str = Depends(get_current_user)):
 
 @app.get("/api/hwb/analyze_ticker")
 async def analyze_ticker(ticker: str, current_user: str = Depends(get_current_user)):
-    """単一銘柄のHWB分析を実行"""
+    """単一銘柄のHWB分析結果を取得（バッチ処理結果から）"""
     if not ticker:
         raise HTTPException(status_code=400, detail="Ticker symbol is required")
 
     try:
-        # ティッカーシンボルを大文字に変換し、不要なスペースを削除
         symbol = ticker.strip().upper()
 
-        analysis_result = await analyze_single_ticker(symbol)
+        signals_path = 'data/hwb_signals.json'
+        charts_path = 'data/hwb_charts.json'
 
-        if analysis_result is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No analysis data found for {symbol}. It might not meet the initial criteria or a signal is not currently present."
-            )
+        if not os.path.exists(signals_path):
+            raise HTTPException(status_code=404, detail="Analysis data file not found. Please run the daily scan.")
 
-        return analysis_result
+        with open(signals_path, 'r', encoding='utf-8') as f:
+            signals_data = json.load(f)
 
+        found_signal = None
+
+        # Check in signals
+        for signal in signals_data.get('signals', []):
+            if signal.get('symbol') == symbol:
+                found_signal = signal
+                break
+
+        # If not found, check in candidates
+        if not found_signal:
+            for candidate in signals_data.get('candidates', []):
+                if candidate.get('symbol') == symbol:
+                    found_signal = candidate
+                    break
+
+        if not found_signal:
+            raise HTTPException(status_code=404, detail=f"No signal or candidate found for ticker {symbol} in the latest scan.")
+
+        # Attach chart data if it exists
+        if os.path.exists(charts_path):
+            with open(charts_path, 'r', encoding='utf-8') as f:
+                charts_data = json.load(f)
+            if symbol in charts_data:
+                found_signal['chart'] = charts_data[symbol]
+
+        return found_signal
+
+    except HTTPException as http_exc:
+        raise http_exc
     except Exception as e:
-        # 予期せぬエラーのログ出力
-        print(f"Error analyzing ticker {ticker}: {e}")
-        raise HTTPException(status_code=500, detail=f"An unexpected error occurred while analyzing {ticker}.")
+        print(f"Error retrieving ticker analysis for {ticker}: {e}")
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred while retrieving analysis for {ticker}.")
 
 # Mount the frontend directory to serve static files
 # This must come AFTER all API routes

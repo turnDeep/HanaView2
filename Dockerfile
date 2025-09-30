@@ -40,8 +40,8 @@ RUN ( \
     echo "" ; \
     echo "15 6 * * 1-5 . /app/backend/cron-env.sh && /app/backend/run_job.sh fetch >> /app/logs/cron_error.log 2>&1" ; \
     echo "28 6 * * 1-5 . /app/backend/cron-env.sh && /app/backend/run_job.sh generate >> /app/logs/cron_error.log 2>&1" ; \
-    echo "# HWBスキャン（米国市場終了30分後）" ; \
-    echo "30 5 * * 2-6 . /app/backend/cron-env.sh && python -m backend.hwb_scanner_cli >> /app/logs/hwb.log 2>&1" \
+    echo "# HWBスキャン（毎朝7時）" ; \
+    echo "0 7 * * * python -m backend.hwb_scanner_cli >> /app/logs/hwb.log 2>&1" \
 ) | crontab -
 
 # Create logs directory

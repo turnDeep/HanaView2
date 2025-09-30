@@ -37,28 +37,25 @@ MA_PERIOD = 200
 
 
 class HWBDatabaseManager:
-    """SQLiteデータベース管理（簡略版）"""
+    """SQLiteデータベース管理（キャッシュ機能付き）"""
 
     def __init__(self, db_path: str):
         self.db_path = db_path
         self.init_database()
 
     def init_database(self):
-        """データベースの初期化"""
+        """データベースの初期化、スキーマの更新"""
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
-
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-
-            # Russell 3000銘柄テーブル
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS russell3000_symbols (
                     symbol TEXT PRIMARY KEY,
                     last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
-
-            # 株価データテーブル
+            # 株価データテーブルを新しいスキーマで再作成
+            cursor.execute('DROP TABLE IF EXISTS stock_data')
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS stock_data (
                     symbol TEXT,
@@ -68,14 +65,9 @@ class HWBDatabaseManager:
                     low REAL,
                     close REAL,
                     volume INTEGER,
-                    sma200 REAL,
-                    ema200 REAL,
-                    weekly_sma200 REAL,
                     PRIMARY KEY (symbol, date)
                 )
             ''')
-
-            # シグナル履歴テーブル
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS signal_history (
                     symbol TEXT,
@@ -85,66 +77,72 @@ class HWBDatabaseManager:
                     PRIMARY KEY (symbol, signal_date)
                 )
             ''')
+            conn.commit()
 
+    def get_cached_daily_data(self, symbol: str) -> Optional[pd.DataFrame]:
+        """指定された銘柄のキャッシュ済み日足データをDBから取得"""
+        with sqlite3.connect(self.db_path) as conn:
+            try:
+                query = "SELECT date, Open, High, Low, Close, Volume FROM stock_data WHERE symbol = ? ORDER BY date ASC"
+                df = pd.read_sql_query(query, conn, params=(symbol,), index_col='date', parse_dates=['date'])
+                df.index.name = 'Date'
+                return df if not df.empty else None
+            except Exception:
+                return None
+
+    def save_daily_data(self, symbol: str, df: pd.DataFrame):
+        """日足データをDBに保存（重複を無視）"""
+        if df.empty:
+            return
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            df_to_save = df.copy()
+            df_to_save.reset_index(inplace=True)
+            records = [
+                (symbol, row['Date'].to_pydatetime().date(), row['Open'], row['High'], row['Low'], row['Close'], row['Volume'])
+                for _, row in df_to_save.iterrows()
+                if row['Volume'] > 0 #出来高ゼロは不要
+            ]
+            cursor.executemany('''
+                INSERT OR IGNORE INTO stock_data (symbol, date, open, high, low, close, volume)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', records)
             conn.commit()
 
     def get_russell3000_symbols(self) -> Set[str]:
         """Russell 3000銘柄リストを取得"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-
-            # キャッシュチェック
-            cursor.execute('''
-                SELECT symbol FROM russell3000_symbols
-                WHERE last_updated > datetime('now', '-7 days')
-            ''')
-
+            cursor.execute("SELECT symbol FROM russell3000_symbols WHERE last_updated > datetime('now', '-7 days')")
             cached_symbols = {row[0] for row in cursor.fetchall()}
-
             if cached_symbols:
                 logger.info(f"Russell 3000銘柄をDBから取得: {len(cached_symbols)}銘柄")
                 return cached_symbols
-
-            # 新規取得
             symbols = self._fetch_russell3000_symbols()
-
             if symbols:
                 cursor.execute('DELETE FROM russell3000_symbols')
-                cursor.executemany(
-                    'INSERT INTO russell3000_symbols (symbol) VALUES (?)',
-                    [(s,) for s in symbols]
-                )
+                cursor.executemany('INSERT INTO russell3000_symbols (symbol) VALUES (?)', [(s,) for s in symbols])
                 conn.commit()
-
             return symbols
 
     def _fetch_russell3000_symbols(self) -> Set[str]:
         """Russell 3000銘柄を取得"""
         symbols = set()
-
         try:
-            # S&P500を取得
             sp500_url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
             tables = pd.read_html(sp500_url)
             sp500_symbols = tables[0]["Symbol"].str.replace(".", "-", regex=False).tolist()
             symbols.update(sp500_symbols)
-
-            # NASDAQ100を追加
             nasdaq100_url = "https://en.wikipedia.org/wiki/Nasdaq-100"
             tables = pd.read_html(nasdaq100_url)
             nasdaq_symbols = tables[4]["Ticker"].tolist() if len(tables) > 4 else []
             symbols.update(nasdaq_symbols)
-
-            # 追加の主要銘柄
             additional = ["PLTR", "SNOW", "COIN", "HOOD", "SOFI", "RIVN", "LCID"]
             symbols.update(additional)
-
             logger.info(f"取得した銘柄数: {len(symbols)}")
             return symbols
-
         except Exception as e:
             logger.error(f"銘柄取得エラー: {e}")
-            # 最小限のリスト
             return {"AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA"}
 
 
@@ -156,33 +154,55 @@ class HWBAnalyzer:
         self.session = requests.Session(impersonate="safari15_5")
 
     def get_stock_data(self, symbol: str) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
-        """株価データ取得"""
+        """株価データ取得（キャッシュ対応）"""
         try:
-            stock = yf.Ticker(symbol, session=self.session)
+            cached_df = self.db.get_cached_daily_data(symbol)
+            start_date = None
+            if cached_df is not None and not cached_df.empty:
+                last_date = cached_df.index.max().date()
+                start_date = last_date + timedelta(days=1)
 
-            # 日足データ（6ヶ月）
-            df_daily = stock.history(period="6mo", interval="1d")
-            if df_daily.empty or len(df_daily) < 100:
+            if start_date and start_date > datetime.now().date():
+                new_df = pd.DataFrame()
+            else:
+                new_df = yf.Ticker(symbol, session=self.session).history(
+                    period="6y", interval="1d", start=start_date
+                )
+
+            if not new_df.empty:
+                if cached_df is not None:
+                    new_df = new_df[new_df.index > cached_df.index.max()]
+                self.db.save_daily_data(symbol, new_df)
+
+            full_df = pd.concat([cached_df, new_df]) if cached_df is not None else new_df
+            full_df = full_df[~full_df.index.duplicated(keep='last')].sort_index()
+
+            if full_df.empty or len(full_df) < 252:
                 return None, None
 
-            # 週足データ（2年）
-            df_weekly = stock.history(period="2y", interval="1wk")
-            if df_weekly.empty or len(df_weekly) < 52:
+            weekly_resampler = full_df.resample('W-FRI')
+            df_weekly = pd.DataFrame({
+                'Open': weekly_resampler['Open'].first(),
+                'High': weekly_resampler['High'].max(),
+                'Low': weekly_resampler['Low'].min(),
+                'Close': weekly_resampler['Close'].last(),
+                'Volume': weekly_resampler['Volume'].sum()
+            })
+            df_weekly.dropna(inplace=True)
+
+            df_daily = full_df
+            if df_daily.empty or len(df_daily) < 100 or df_weekly.empty or len(df_weekly) < 52:
                 return None, None
 
-            # タイムゾーン除去
             df_daily.index = df_daily.index.tz_localize(None)
             df_weekly.index = df_weekly.index.tz_localize(None)
 
-            # 移動平均を計算
             df_daily['SMA200'] = df_daily['Close'].rolling(window=min(200, len(df_daily)), min_periods=50).mean()
             df_daily['EMA200'] = df_daily['Close'].ewm(span=min(200, len(df_daily)), min_periods=50, adjust=False).mean()
             df_weekly['SMA200'] = df_weekly['Close'].rolling(window=min(200, len(df_weekly)), min_periods=50).mean()
 
-            # 週足SMAを日足に結合
             df_daily['Weekly_SMA200'] = np.nan
             df_daily['Weekly_Close'] = np.nan
-
             for idx, row in df_weekly.iterrows():
                 if pd.notna(row['SMA200']):
                     week_start = idx - pd.Timedelta(days=idx.weekday())
@@ -191,7 +211,6 @@ class HWBAnalyzer:
                     if mask.any():
                         df_daily.loc[mask, 'Weekly_SMA200'] = row['SMA200']
                         df_daily.loc[mask, 'Weekly_Close'] = row['Close']
-
             df_daily['Weekly_SMA200'] = df_daily['Weekly_SMA200'].ffill()
             df_daily['Weekly_Close'] = df_daily['Weekly_Close'].ffill()
 
@@ -675,87 +694,3 @@ async def run_hwb_scan(progress_callback=None):
     logger.info(f"スキャン結果を保存: {output_path}")
 
     return result
-
-async def analyze_single_ticker(symbol: str) -> Optional[Dict]:
-    """単一銘柄の分析を実行"""
-    try:
-        # HWBScannerの主要コンポーネントを初期化
-        db_manager = HWBDatabaseManager(DB_PATH)
-        analyzer = HWBAnalyzer(db_manager)
-
-        # データ取得
-        df_daily, df_weekly = analyzer.get_stock_data(symbol)
-        if df_daily is None or df_weekly is None:
-            logger.info(f"No data for symbol: {symbol}")
-            return None
-
-        # ルール① トレンドチェック
-        if not analyzer.check_rule1(df_daily, df_weekly):
-            logger.info(f"Trend check failed for {symbol}")
-            return None
-
-        # ルール② セットアップ検出
-        setups = analyzer.find_setups(df_daily)
-        if not setups:
-            logger.info(f"No setups found for {symbol}")
-            return None
-
-        # 最新のセットアップから順に評価
-        for setup in reversed(setups):
-            # ルール③ FVG検出
-            fvgs = analyzer.detect_fvg(df_daily, setup['date'])
-            if not fvgs:
-                continue
-
-            # 最新のFVGを評価
-            fvg = fvgs[-1]
-
-            # ルール④ ブレイクアウトチェック
-            breakout = analyzer.check_breakout(df_daily, setup, fvg)
-
-            # ダミースコア計算クラス
-            class DummyScanner:
-                def _calculate_score(self, setup, fvg, breakout):
-                    return HWBScanner()._calculate_score(setup, fvg, breakout)
-
-            score = DummyScanner()._calculate_score(setup, fvg, breakout)
-
-            # シグナルの種類を決定
-            signal_type = 's2_breakout' if breakout else 's1_fvg'
-
-            # チャート生成
-            chart = analyzer.create_chart_base64(
-                symbol, df_daily, signal_type, setup, fvg, breakout
-            )
-
-            # 結果を整形
-            result = {
-                'symbol': symbol,
-                'signal_type': signal_type,
-                'score': score,
-                'setup': {
-                    'date': setup['date'].strftime('%Y-%m-%d'),
-                    'zone_width': (setup['zone_upper'] - setup['zone_lower']) / setup['close']
-                },
-                'fvg': {
-                    'date': fvg['formation_date'].strftime('%Y-%m-%d'),
-                    'gap_percentage': fvg['gap_percentage']
-                },
-                'breakout': None,
-                'chart': chart
-            }
-
-            if breakout:
-                result['breakout'] = {
-                    'date': breakout['breakout_date'].strftime('%Y-%m-%d'),
-                    'percentage': breakout['breakout_percentage']
-                }
-
-            return result
-
-        logger.info(f"No actionable signal found for {symbol} after checking all setups.")
-        return None
-
-    except Exception as e:
-        logger.error(f"Error analyzing single ticker {symbol}: {e}")
-        return None
