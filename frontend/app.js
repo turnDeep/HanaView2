@@ -509,94 +509,94 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        renderLightweightChart(container, chartData, width, height) {
-            if (!container || !chartData || !chartData.candles || chartData.candles.length === 0) {
-                container.innerHTML = '<p>Chart data is not available.</p>';
-                return;
-            }
+renderLightweightChart(container, chartData, width, height) {
+    if (!container || !chartData || !chartData.candles || chartData.candles.length === 0) {
+        container.innerHTML = '<p>Chart data is not available.</p>';
+        return;
+    }
 
-            const chart = LightweightCharts.createChart(container, {
-                width: width || container.clientWidth,
-                height: height || 300,
-                layout: { backgroundColor: '#ffffff', textColor: '#333' },
-                grid: { vertLines: { color: '#e1e1e1' }, horzLines: { color: '#e1e1e1' } },
-                timeScale: { borderColor: '#cccccc', timeVisible: true },
+    const chart = LightweightCharts.createChart(container, {
+        width: width || container.clientWidth,
+        height: height || 300,
+        layout: { backgroundColor: '#ffffff', textColor: '#333' },
+        grid: { vertLines: { color: '#e1e1e1' }, horzLines: { color: '#e1e1e1' } },
+        timeScale: { borderColor: '#cccccc', timeVisible: true },
+    });
+
+    // ✅ v5対応：CandlestickSeries
+    const candleSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
+        upColor: '#26a69a',
+        downColor: '#ef5350',
+        borderDownColor: '#ef5350',
+        borderUpColor: '#26a69a',
+        wickDownColor: '#ef5350',
+        wickUpColor: '#26a69a',
+    });
+    candleSeries.setData(chartData.candles);
+
+    // ✅ v5対応：LineSeries
+    const sma200 = chart.addSeries(LightweightCharts.LineSeries, {
+        color: '#9370DB',
+        lineWidth: 2,
+        title: 'SMA200'
+    });
+    sma200.setData(chartData.sma200);
+
+    const ema200 = chart.addSeries(LightweightCharts.LineSeries, {
+        color: '#800080',
+        lineWidth: 2,
+        title: 'EMA200'
+    });
+    ema200.setData(chartData.ema200);
+
+    const weeklySma200 = chart.addSeries(LightweightCharts.LineSeries, {
+        color: '#0000FF',
+        lineWidth: 3,
+        title: 'Weekly SMA200'
+    });
+    weeklySma200.setData(chartData.weekly_sma200);
+
+    // ゾーン描画
+    if (chartData.zones && chartData.zones.length > 0) {
+        const auxiliarySeries = chart.addSeries(LightweightCharts.LineSeries, {
+            visible: false,
+            priceLineVisible: false
+        });
+
+        chartData.zones.forEach(zone => {
+            const p1 = {
+                time: new Date(zone.startTime).getTime() / 1000,
+                price: zone.topValue
+            };
+            const p2 = {
+                time: new Date(zone.endTime).getTime() / 1000,
+                price: zone.bottomValue
+            };
+
+            const rectPrimitive = new RectanglePrimitive({
+                points: [p1, p2],
+                fillColor: zone.fillColor,
+                borderColor: zone.borderColor,
+                borderWidth: 1.5
             });
 
-            // ✅ 修正
-            const candleSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
-                upColor: '#26a69a',
-                downColor: '#ef5350',
-                borderDownColor: '#ef5350',
-                borderUpColor: '#26a69a',
-                wickDownColor: '#ef5350',
-                wickUpColor: '#26a69a',
-            });
-            candleSeries.setData(chartData.candles);
+            auxiliarySeries.attachPrimitive(rectPrimitive);
+        });
+    }
 
-            // ✅ 修正: LineSeries
-            const sma200 = chart.addSeries(LightweightCharts.LineSeries, {
-                color: '#9370DB',
-                lineWidth: 2,
-                title: 'SMA200'
-            });
-            sma200.setData(chartData.sma200);
+    // マーカー
+    if (chartData.markers && chartData.markers.length > 0) {
+        candleSeries.setMarkers(chartData.markers);
+    }
 
-            const ema200 = chart.addSeries(LightweightCharts.LineSeries, {
-                color: '#800080',
-                lineWidth: 2,
-                title: 'EMA200'
-            });
-            ema200.setData(chartData.ema200);
+    chart.timeScale().fitContent();
 
-            const weeklySma200 = chart.addSeries(LightweightCharts.LineSeries, {
-                color: '#0000FF',
-                lineWidth: 3,
-                title: 'Weekly SMA200'
-            });
-            weeklySma200.setData(chartData.weekly_sma200);
-
-            // ゾーン描画（v5対応版）
-            if (chartData.zones && chartData.zones.length > 0) {
-                const auxiliarySeries = chart.addSeries(LightweightCharts.LineSeries, {
-                    visible: false,
-                    priceLineVisible: false
-                });
-
-                chartData.zones.forEach(zone => {
-                    const p1 = {
-                        time: new Date(zone.startTime).getTime() / 1000,
-                        price: zone.topValue
-                    };
-                    const p2 = {
-                        time: new Date(zone.endTime).getTime() / 1000,
-                        price: zone.bottomValue
-                    };
-
-                    const rectPrimitive = new RectanglePrimitive({
-                        points: [p1, p2],
-                        fillColor: zone.fillColor,
-                        borderColor: zone.borderColor,
-                        borderWidth: 1.5
-                    });
-
-                    auxiliarySeries.attachPrimitive(rectPrimitive);
-                });
-            }
-
-            // マーカー
-            if (chartData.markers && chartData.markers.length > 0) {
-                candleSeries.setMarkers(chartData.markers);
-            }
-
-            chart.timeScale().fitContent();
-
-            new ResizeObserver(entries => {
-                if (entries.length > 0 && entries[0].contentRect.width > 0) {
-                    chart.applyOptions({ width: entries[0].contentRect.width });
-                }
-            }).observe(container);
+    new ResizeObserver(entries => {
+        if (entries.length > 0 && entries[0].contentRect.width > 0) {
+            chart.applyOptions({ width: entries[0].contentRect.width });
         }
+    }).observe(container);
+}
 
         showStatus(message, type = 'info') {
             const statusDiv = document.getElementById('hwb-status');
@@ -719,62 +719,64 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) { return ''; }
     }
 
-    function renderLightweightChart(containerId, data, title) {
-        const container = document.getElementById(containerId);
-        if (!container || !data || data.length === 0) {
-            container.innerHTML = `<p>Chart data for ${title} is not available.</p>`;
-            return;
-        }
-        container.innerHTML = '';
-
-        const chart = LightweightCharts.createChart(container, {
-            width: container.clientWidth,
-            height: 300,
-            layout: {
-                backgroundColor: '#ffffff',
-                textColor: '#333333'
-            },
-            grid: {
-                vertLines: { color: '#e1e1e1' },
-                horzLines: { color: '#e1e1e1' }
-            },
-            crosshair: {
-                mode: LightweightCharts.CrosshairMode.Normal
-            },
-            timeScale: {
-                borderColor: '#cccccc',
-                timeVisible: true,
-                secondsVisible: false
-            }
-        });
-
-        // ✅ 修正: addCandlestickSeries → addSeries(CandlestickSeries)
-        const candlestickSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
-            upColor: '#26a69a',
-            downColor: '#ef5350',
-            borderDownColor: '#ef5350',
-            borderUpColor: '#26a69a',
-            wickDownColor: '#ef5350',
-            wickUpColor: '#26a69a'
-        });
-
-        const chartData = data.map(item => ({
-            time: (new Date(item.time).getTime() / 1000),
-            open: item.open,
-            high: item.high,
-            low: item.low,
-            close: item.close
-        }));
-
-        candlestickSeries.setData(chartData);
-        chart.timeScale().fitContent();
-
-        new ResizeObserver(entries => {
-            if (entries.length > 0 && entries[0].contentRect.width > 0) {
-                chart.applyOptions({ width: entries[0].contentRect.width });
-            }
-        }).observe(container);
+function renderLightweightChart(containerId, data, title) {
+    const container = document.getElementById(containerId);
+    if (!container || !data || data.length === 0) {
+        container.innerHTML = `<p>Chart data for ${title} is not available.</p>`;
+        return;
     }
+    container.innerHTML = '';
+
+    const chart = LightweightCharts.createChart(container, {
+        width: container.clientWidth,
+        height: 300,
+        layout: {
+            backgroundColor: '#ffffff',
+            textColor: '#333333'
+        },
+        grid: {
+            vertLines: { color: '#e1e1e1' },
+            horzLines: { color: '#e1e1e1' }
+        },
+        crosshair: {
+            mode: LightweightCharts.CrosshairMode.Normal
+        },
+        timeScale: {
+            borderColor: '#cccccc',
+            timeVisible: true,
+            secondsVisible: false
+        },
+        handleScroll: false,
+        handleScale: false
+    });
+
+    // ✅ v5対応：addSeries(CandlestickSeries)を使用
+    const candlestickSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
+        upColor: '#26a69a',
+        downColor: '#ef5350',
+        borderDownColor: '#ef5350',
+        borderUpColor: '#26a69a',
+        wickDownColor: '#ef5350',
+        wickUpColor: '#26a69a'
+    });
+
+    const chartData = data.map(item => ({
+        time: (new Date(item.time).getTime() / 1000),
+        open: item.open,
+        high: item.high,
+        low: item.low,
+        close: item.close
+    }));
+
+    candlestickSeries.setData(chartData);
+    chart.timeScale().fitContent();
+
+    new ResizeObserver(entries => {
+        if (entries.length > 0 && entries[0].contentRect.width > 0) {
+            chart.applyOptions({ width: entries[0].contentRect.width });
+        }
+    }).observe(container);
+}
 
     function renderMarketOverview(container, marketData, lastUpdated) {
         if (!container) return;
