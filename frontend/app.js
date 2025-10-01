@@ -284,7 +284,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
         initEventListeners() {
             const analyzeBtn = document.getElementById('hwb-analyze-btn');
-            if (analyzeBtn) analyzeBtn.addEventListener('click', () => this.analyzeTicker());
+            if (analyzeBtn) {
+                analyzeBtn.addEventListener('click', () => {
+                    if (analyzeBtn.dataset.state === 'reset') {
+                        this.resetAnalysisView();
+                    } else {
+                        this.analyzeTicker();
+                    }
+                });
+            }
 
             const contentDiv = document.getElementById('hwb-content');
             if (contentDiv) {
@@ -344,9 +352,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const symbolData = await response.json();
 
-                // モーダルで表示
-                this.createModal(ticker);
+                // Switch to analysis view
+                const summaryContainer = document.getElementById('hwb-content');
+                if (summaryContainer) summaryContainer.style.display = 'none';
+
+                const analysisContainer = document.getElementById('hwb-analysis-content');
+                if (analysisContainer) {
+                    analysisContainer.style.display = 'block';
+                    analysisContainer.innerHTML = ''; // Clear previous
+                }
+
                 this.renderAnalysisChart(symbolData);
+
+                // Update button state
+                const analyzeBtn = document.getElementById('hwb-analyze-btn');
+                if (analyzeBtn) {
+                    analyzeBtn.textContent = 'リセット';
+                    analyzeBtn.dataset.state = 'reset';
+                }
 
                 const hasSignals = symbolData.signals && symbolData.signals.length > 0;
                 const statusMsg = hasSignals
@@ -357,7 +380,27 @@ document.addEventListener('DOMContentLoaded', () => {
             } catch (error) {
                 console.error('Analysis error:', error);
                 this.showStatus(`❌ エラー: ${error.message}`, 'error');
+                this.resetAnalysisView();
             }
+        }
+
+        resetAnalysisView() {
+            const analysisContainer = document.getElementById('hwb-analysis-content');
+            const summaryContainer = document.getElementById('hwb-content');
+            const analyzeBtn = document.getElementById('hwb-analyze-btn');
+
+            if (analysisContainer) {
+                analysisContainer.style.display = 'none';
+                analysisContainer.innerHTML = ''; // Clear content
+            }
+            if (summaryContainer) {
+                summaryContainer.style.display = 'block';
+            }
+            if (analyzeBtn) {
+                analyzeBtn.textContent = '分析';
+                analyzeBtn.dataset.state = 'analyze';
+            }
+            this.showStatus('ティッカーを入力して分析を開始してください。', 'info');
         }
 
         async loadData() {
@@ -584,7 +627,7 @@ renderLightweightChart(container, chartData, width, height) {
 
     // マーカー
     if (chartData.markers && chartData.markers.length > 0) {
-        candleSeries.setMarkers(chartData.markers);
+        LightweightCharts.createSeriesMarkers(candleSeries, chartData.markers);
     }
 
     chart.timeScale().fitContent();
@@ -605,7 +648,21 @@ renderLightweightChart(container, chartData, width, height) {
         }
 
         async showAnalysisChart(symbol) {
-            this.createModal(symbol);
+            const summaryContainer = document.getElementById('hwb-content');
+            if (summaryContainer) summaryContainer.style.display = 'none';
+
+            const analysisContainer = document.getElementById('hwb-analysis-content');
+            if (analysisContainer) {
+                analysisContainer.style.display = 'block';
+                analysisContainer.innerHTML = `<div class="loading-spinner"></div><p>Loading chart for ${symbol}...</p>`;
+            }
+
+            const analyzeBtn = document.getElementById('hwb-analyze-btn');
+            if (analyzeBtn) {
+                analyzeBtn.textContent = 'リセット';
+                analyzeBtn.dataset.state = 'reset';
+            }
+
             try {
                 const response = await fetchWithAuth(`/api/hwb/symbols/${symbol}`);
                 if (!response.ok) throw new Error(`Failed to load data for ${symbol}`);
@@ -613,43 +670,13 @@ renderLightweightChart(container, chartData, width, height) {
                 this.renderAnalysisChart(symbolData);
             } catch (error) {
                 console.error(`Error loading analysis chart for ${symbol}:`, error);
-                const chartContainer = document.getElementById('analysis-chart-container');
-                if(chartContainer) chartContainer.innerHTML = `<p class="error-text">❌ チャート読込失敗</p>`;
+                this.showStatus(`❌ ${symbol}のチャート読込失敗`, 'error');
+                this.resetAnalysisView();
             }
         }
 
-        createModal(symbol) {
-            // Remove existing modal if any
-            const existingModal = document.getElementById('analysis-modal');
-            if (existingModal) existingModal.remove();
-
-            const modal = document.createElement('div');
-            modal.id = 'analysis-modal';
-            modal.className = 'hwb-analysis-modal';
-            modal.innerHTML = `
-                <div class="hwb-modal-content">
-                    <div class="hwb-modal-header">
-                        <h2>${symbol} - 詳細分析</h2>
-                        <button id="hwb-modal-close" class="hwb-modal-close">&times;</button>
-                    </div>
-                    <div id="analysis-chart-container" class="hwb-modal-body">
-                        <div class="loading-spinner"></div>
-                        <p>Loading chart...</p>
-                    </div>
-                </div>
-            `;
-            document.body.appendChild(modal);
-
-            document.getElementById('hwb-modal-close').addEventListener('click', () => modal.remove());
-            modal.addEventListener('click', (e) => {
-                if (e.target.id === 'analysis-modal') {
-                    modal.remove();
-                }
-            });
-        }
-
         renderAnalysisChart(symbolData) {
-            const container = document.getElementById('analysis-chart-container');
+            const container = document.getElementById('hwb-analysis-content');
             if (!container) return;
 
             // ローディングスピナーをクリア
