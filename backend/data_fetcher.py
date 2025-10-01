@@ -1554,12 +1554,11 @@ class MarketDataFetcher:
         return self.data
 
 
-    def send_push_notifications(self):
-        """レポート生成完了後にPush通知を送信"""
-        logger.info("Sending push notifications for 6:30 AM update...")
+    def send_push_notifications(self, custom_notification_data=None):
+        """Push通知を送信（カスタムデータ対応）"""
+        logger.info("Sending push notifications...")
 
         try:
-            # セキュリティマネージャーの初期化
             from .security_manager import security_manager
             security_manager.data_dir = DATA_DIR
             security_manager.initialize()
@@ -1579,15 +1578,17 @@ class MarketDataFetcher:
                 logger.info("No active push subscriptions")
                 return 0
 
-            # 通知データ作成
-            jst = timezone(timedelta(hours=9))
-            current_time = datetime.now(jst)
-
-            notification_data = {
-                "title": "朝の市況データ更新完了",
-                "body": f"{current_time.strftime('%H:%M')}の最新データが準備できました",
-                "type": "data-update"
-            }
+            # 通知データ作成（カスタムデータまたはデフォルト）
+            if custom_notification_data:
+                notification_data = custom_notification_data
+            else:
+                jst = timezone(timedelta(hours=9))
+                current_time = datetime.now(jst)
+                notification_data = {
+                    "title": "朝の市況データ更新完了",
+                    "body": f"{current_time.strftime('%H:%M')}の最新データが準備できました",
+                    "type": "data-update"
+                }
 
             sent_count = 0
             failed_subscriptions = []
@@ -1599,15 +1600,12 @@ class MarketDataFetcher:
                         subscription_info=subscription,
                         data=json.dumps(notification_data),
                         vapid_private_key=security_manager.vapid_private_key,
-                        vapid_claims={
-                            "sub": security_manager.vapid_subject,
-                        }
+                        vapid_claims={"sub": security_manager.vapid_subject}
                     )
                     sent_count += 1
                     logger.debug(f"Notification sent to subscription {sub_id}")
                 except WebPushException as ex:
                     logger.error(f"Failed to send notification to {sub_id}: {ex}")
-                    # 410エラーは無効なサブスクリプション
                     if ex.response and ex.response.status_code == 410:
                         failed_subscriptions.append(sub_id)
                 except Exception as e:
@@ -1621,14 +1619,11 @@ class MarketDataFetcher:
                     json.dump(subscriptions, f)
                 logger.info(f"Removed {len(failed_subscriptions)} invalid subscriptions")
 
-            logger.info(f"Push notifications sent successfully: {sent_count} sent")
+            logger.info(f"Push notifications sent: {sent_count}")
             return sent_count
 
-        except ImportError as e:
-            logger.error(f"Failed to import required modules for push notifications: {e}")
-            return 0
         except Exception as e:
-            logger.error(f"Unexpected error sending push notifications: {e}")
+            logger.error(f"Error sending push notifications: {e}")
             return 0
 
     def generate_report_with_notification(self):
