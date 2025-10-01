@@ -284,15 +284,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
         initEventListeners() {
             const analyzeBtn = document.getElementById('hwb-analyze-btn');
-            if(analyzeBtn) analyzeBtn.addEventListener('click', () => this.analyzeTicker());
+            if (analyzeBtn) analyzeBtn.addEventListener('click', () => this.analyzeTicker());
 
             const contentDiv = document.getElementById('hwb-content');
-            if(contentDiv) contentDiv.addEventListener('click', (e) => {
-                const card = e.target.closest('.hwb-chart-card');
-                if (card && !card.dataset.chartLoaded) {
-                    this.loadSymbolChart(card);
-                }
-            });
+            if (contentDiv) {
+                contentDiv.addEventListener('click', (e) => {
+                    const analysisButton = e.target.closest('.hwb-analysis-button');
+                    if (analysisButton) {
+                        e.stopPropagation(); // Prevent card click event from firing
+                        const symbol = analysisButton.dataset.symbol;
+                        this.showAnalysisChart(symbol);
+                        return;
+                    }
+
+                    const card = e.target.closest('.hwb-chart-card');
+                    if (card && !card.dataset.chartLoaded) {
+                        this.loadSymbolChart(card);
+                    }
+                });
+            }
         }
 
         async analyzeTicker() {
@@ -409,6 +419,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
                 <div class="hwb-chart-info">
                     <span>${signalType} on ${item.signal_date || item.fvg_date}</span>
+                    <button class="hwb-analysis-button" data-symbol="${item.symbol}">詳細分析</button>
                 </div>
                 <div class="hwb-chart-placeholder">
                     <div class="loading-spinner-small"></div>
@@ -449,15 +460,15 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        renderLightweightChart(container, chartData) {
+        renderLightweightChart(container, chartData, width, height) {
             if (!container || !chartData || !chartData.candles || chartData.candles.length === 0) {
                 container.innerHTML = '<p>Chart data is not available.</p>';
                 return;
             }
 
             const chart = LightweightCharts.createChart(container, {
-                width: container.clientWidth,
-                height: 300,
+                width: width || container.clientWidth,
+                height: height || 300,
                 layout: { backgroundColor: '#ffffff', textColor: '#333' },
                 grid: { vertLines: { color: '#e1e1e1' }, horzLines: { color: '#e1e1e1' } },
                 timeScale: { borderColor: '#cccccc', timeVisible: true },
@@ -511,6 +522,60 @@ document.addEventListener('DOMContentLoaded', () => {
                 statusDiv.textContent = message;
                 statusDiv.className = `hwb-status-info ${type}`;
             }
+        }
+
+        async showAnalysisChart(symbol) {
+            this.createModal(symbol);
+            try {
+                const response = await fetchWithAuth(`/api/hwb/symbols/${symbol}`);
+                if (!response.ok) throw new Error(`Failed to load data for ${symbol}`);
+                const symbolData = await response.json();
+                this.renderAnalysisChart(symbolData);
+            } catch (error) {
+                console.error(`Error loading analysis chart for ${symbol}:`, error);
+                const chartContainer = document.getElementById('analysis-chart-container');
+                if(chartContainer) chartContainer.innerHTML = `<p class="error-text">❌ チャート読込失敗</p>`;
+            }
+        }
+
+        createModal(symbol) {
+            // Remove existing modal if any
+            const existingModal = document.getElementById('analysis-modal');
+            if (existingModal) existingModal.remove();
+
+            const modal = document.createElement('div');
+            modal.id = 'analysis-modal';
+            modal.className = 'hwb-analysis-modal';
+            modal.innerHTML = `
+                <div class="hwb-modal-content">
+                    <div class="hwb-modal-header">
+                        <h2>${symbol} - 詳細分析</h2>
+                        <button id="hwb-modal-close" class="hwb-modal-close">&times;</button>
+                    </div>
+                    <div id="analysis-chart-container" class="hwb-modal-body">
+                        <div class="loading-spinner"></div>
+                        <p>Loading chart...</p>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+
+            document.getElementById('hwb-modal-close').addEventListener('click', () => modal.remove());
+            modal.addEventListener('click', (e) => {
+                if (e.target.id === 'analysis-modal') {
+                    modal.remove();
+                }
+            });
+        }
+
+        renderAnalysisChart(symbolData) {
+             const container = document.getElementById('analysis-chart-container');
+             if (!container || !symbolData || !symbolData.chart_data || !symbolData.chart_data.candles || symbolData.chart_data.candles.length === 0) {
+                 container.innerHTML = '<p>Chart data is not available.</p>';
+                 return;
+             }
+            container.innerHTML = ''; // Clear loading spinner
+            this.renderLightweightChart(container, symbolData.chart_data, 800, 600); // Larger chart
         }
     }
 

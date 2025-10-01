@@ -250,7 +250,7 @@ class HWBScanner:
 
     def _generate_lightweight_chart_data(self, symbol_data: dict, df_daily: pd.DataFrame) -> dict:
         """Generates a data object compatible with lightweight-charts."""
-        df_plot = df_daily.tail(180).copy()
+        df_plot = df_daily.copy() # Use the full dataframe for detailed analysis
         df_plot.index = pd.to_datetime(df_plot.index)
 
         def format_series(df, column):

@@ -954,10 +954,26 @@ body {
 
 .hwb-chart-info {
     display: flex;
-    gap: 15px;
+    justify-content: space-between;
+    align-items: center;
     margin: 10px 0;
     font-size: 0.9em;
     color: var(--text-secondary);
+}
+
+.hwb-analysis-button {
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 0.9em;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.hwb-analysis-button:hover {
+    background-color: #0056b3;
 }
 
 .hwb-chart-info span {
@@ -1005,4 +1021,128 @@ body {
         text-align: center;
         margin-top: 10px;
     }
+}
+
+/* Analysis Modal Styles */
+.hwb-analysis-modal {
+    position: fixed;
+    z-index: 1001;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background-color: rgba(0,0,0,0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.hwb-modal-content {
+    background-color: #fefefe;
+    margin: auto;
+    padding: 20px;
+    border: 1px solid #888;
+    width: 90%;
+    max-width: 1200px;
+    border-radius: 8px;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+}
+
+.hwb-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 10px;
+    margin-bottom: 15px;
+}
+
+.hwb-modal-header h2 {
+    margin: 0;
+    color: var(--tab-text);
+}
+
+.hwb-modal-close {
+    color: #aaa;
+    float: right;
+    font-size: 28px;
+    font-weight: bold;
+    border: none;
+    background: none;
+    cursor: pointer;
+}
+
+.hwb-modal-close:hover,
+.hwb-modal-close:focus {
+    color: black;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.hwb-modal-body {
+    width: 100%;
+    height: 70vh;
+}
+
+/* Analysis Modal Styles */
+.hwb-analysis-modal {
+    position: fixed;
+    z-index: 1001;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background-color: rgba(0,0,0,0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.hwb-modal-content {
+    background-color: #fefefe;
+    margin: auto;
+    padding: 20px;
+    border: 1px solid #888;
+    width: 90%;
+    max-width: 1200px;
+    border-radius: 8px;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+}
+
+.hwb-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 10px;
+    margin-bottom: 15px;
+}
+
+.hwb-modal-header h2 {
+    margin: 0;
+    color: var(--tab-text);
+}
+
+.hwb-modal-close {
+    color: #aaa;
+    float: right;
+    font-size: 28px;
+    font-weight: bold;
+    border: none;
+    background: none;
+    cursor: pointer;
+}
+
+.hwb-modal-close:hover,
+.hwb-modal-close:focus {
+    color: black;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.hwb-modal-body {
+    width: 100%;
+    height: 70vh;
 }

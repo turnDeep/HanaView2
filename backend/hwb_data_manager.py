@@ -86,7 +86,7 @@ class HWBDataManager:
             logger.error(f"Database initialization failed: {e}", exc_info=True)
             raise
 
-    def get_stock_data_with_cache(self, symbol: str, lookback_years: int = 6) -> Optional[Tuple[pd.DataFrame, pd.DataFrame]]:
+    def get_stock_data_with_cache(self, symbol: str, lookback_years: int = 10) -> Optional[Tuple[pd.DataFrame, pd.DataFrame]]:
         """
         Retrieves historical stock data for a symbol, utilizing a local SQLite cache
         to minimize API calls. It fetches `lookback_years` of data on the first run and
