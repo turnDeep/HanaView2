@@ -188,7 +188,7 @@ Push通知送信（全登録ユーザー）
 
 ### 2.3 HWBスキャンフロー【NEW】
 ```
-5:30 JST → Cron Job (hwb_scanner)
+6:35 JST → Cron Job (hwb_scanner)
     ↓
 HWBScanner.scan_all_symbols()
     ↓
