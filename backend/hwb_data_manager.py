@@ -7,7 +7,9 @@ from datetime import datetime, timedelta
 import logging
 import yfinance as yf
 from curl_cffi import requests
-from typing import Tuple, Dict, Optional
+from typing import Tuple, Dict, Optional, Set
+from io import StringIO
+from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
 
@@ -321,44 +323,73 @@ class HWBDataManager:
                 return symbols
         except Exception as e:
             logger.error(f"Failed to get Russell 3000 symbols: {e}", exc_info=True)
-            return self._get_fallback_symbols()
+            return set()
 
     def _fetch_russell3000_symbols(self) -> set:
-        """Fetches a list of representative US stock market symbols."""
-        symbols = set()
+        """iShares ETFからRussell 3000のシンボルリストを取得"""
+        symbols: Set[str] = set()
         try:
-            # Using Wikipedia for S&P 500 and Nasdaq 100 as a proxy for a broad market index
-            sp500_url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
-            sp500_table = pd.read_html(sp500_url)[0]
-            sp500_symbols = set(sp500_table['Symbol'].str.replace('.', '-', regex=False))
-            symbols.update(sp500_symbols)
-            logger.info(f"Fetched {len(sp500_symbols)} S&P 500 symbols.")
+            # iShares Russell 3000 ETF (IWV)のホールディングスCSVを取得
+            today = datetime.now()
+            # The composition is updated annually in June, so fetching in July is ideal.
+            # We assume the fetched CSV is valid for one year.
+            # To ensure we get the data, we might need to check previous dates if today's fails.
+            # For simplicity, we'll try the last few days.
+            for i in range(365): # Try up to a year ago
+                date_to_try = today - timedelta(days=i)
+                date_str = date_to_try.strftime('%Y%m%d')
+                url = f"https://www.ishares.com/us/products/239714/ishares-russell-3000-etf/1467271812596.ajax?fileType=csv&fileName=IWV_holdings&dataType=fund&asOfDate={date_str}"
 
-            nasdaq100_url = "https://en.wikipedia.org/wiki/Nasdaq-100"
-            nasdaq_tables = pd.read_html(nasdaq100_url)
-            # Find the correct table which contains the tickers
-            for table in nasdaq_tables:
-                if 'Ticker' in table.columns:
-                    nasdaq_symbols = set(table['Ticker'].str.replace('.', '-', regex=False))
-                    symbols.update(nasdaq_symbols)
-                    logger.info(f"Fetched {len(nasdaq_symbols)} Nasdaq 100 symbols.")
-                    break
+                try:
+                    logger.info(f"Attempting to fetch Russell 3000 holdings for {date_str}...")
+                    response = self.session.get(url, timeout=30)
+                    response.raise_for_status()
 
-            # Add some popular and volatile stocks
-            additional_symbols = {"PLTR", "SNOW", "COIN", "HOOD", "SOFI", "RIVN", "LCID", "TSM"}
-            symbols.update(additional_symbols)
+                    # Check if the response is valid CSV data and not an error page HTML
+                    if response.text.strip().startswith('<'):
+                        logger.warning(f"Received HTML instead of CSV for date {date_str}. Trying previous day.")
+                        continue
 
-            logger.info(f"Total unique symbols collected: {len(symbols)}")
+                    lines = response.text.split('\n')
+
+                    # Find the start of the data (the line with "Ticker")
+                    data_start = -1
+                    for i, line in enumerate(lines):
+                        if 'Ticker' in line:
+                            data_start = i
+                            break
+
+                    if data_start == -1:
+                        logger.warning(f"Could not find 'Ticker' header in CSV for date {date_str}. Trying previous day.")
+                        continue
+
+                    csv_data = '\n'.join(lines[data_start:])
+                    df = pd.read_csv(StringIO(csv_data))
+
+                    if 'Ticker' in df.columns:
+                        symbols = set(df['Ticker'].dropna().str.strip())
+                        # Process symbols to replace dots with hyphens, common in stock tickers (e.g., BRK.B -> BRK-B)
+                        symbols = {s.replace('.', '-') for s in symbols if isinstance(s, str) and s != '-'}
+                        logger.info(f"Fetched {len(symbols)} Russell 3000 symbols from iShares ETF for date {date_str}")
+                        return symbols # Success, exit the loop
+
+                except requests.errors.RequestsError as re:
+                    # Specifically handle HTTP errors (like 404 Not Found) quietly
+                    logger.info(f"No data available for {date_str} (HTTP Status: {re.response.status_code if re.response else 'N/A'}). Trying previous day.")
+                    continue
+                except Exception as e:
+                     logger.error(f"An unexpected error occurred while fetching for {date_str}: {e}")
+                     # For unexpected errors, stop trying
+                     break
+
+            if not symbols:
+                 logger.error("Failed to fetch Russell 3000 symbols after trying multiple dates.")
+
             return symbols
 
         except Exception as e:
-            logger.error(f"Failed to fetch symbols from online sources: {e}", exc_info=True)
-            return self._get_fallback_symbols()
-
-    def _get_fallback_symbols(self) -> set:
-        """Returns a small, hardcoded set of symbols if fetching fails."""
-        logger.warning("Using fallback symbol list.")
-        return {"AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA"}
+            logger.error(f"Failed to fetch Russell 3000 from iShares: {e}", exc_info=True)
+            return set()
 
     def save_symbol_data(self, symbol: str, data: dict):
         """Saves the analysis result for a single symbol to a JSON file."""

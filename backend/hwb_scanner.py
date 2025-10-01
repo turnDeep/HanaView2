@@ -44,7 +44,8 @@ class HWBAnalyzer:
     def find_setups(self, df_daily: pd.DataFrame) -> List[Dict]:
         """Rule ②: Setup Detection"""
         setups = []
-        valid_data = df_daily[df_daily['sma200'].notna() & df_daily['ema200'].notna()].tail(SETUP_LOOKBACK_DAYS)
+        # `.tail(SETUP_LOOKBACK_DAYS)` is removed to scan the entire history
+        valid_data = df_daily[df_daily['sma200'].notna() & df_daily['ema200'].notna()]
         for i in range(len(valid_data)):
             row = valid_data.iloc[i]
             zone_upper = max(row['sma200'], row['ema200'])
