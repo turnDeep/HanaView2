@@ -71,13 +71,6 @@ class HWBDataManager:
                     daily_count INTEGER, weekly_count INTEGER
                 );
                 """)
-                # Russell 3000 symbols table
-                cursor.execute("""
-                CREATE TABLE IF NOT EXISTS russell3000_symbols (
-                    symbol TEXT PRIMARY KEY,
-                    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-                """)
                 # Indexes
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_daily_symbol_date ON daily_prices(symbol, date DESC);")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_weekly_symbol_date ON weekly_prices(symbol, week_start_date DESC);")
@@ -290,105 +283,25 @@ class HWBDataManager:
             logger.error(f"Failed to load weekly data for '{symbol}': {e}", exc_info=True)
             return pd.DataFrame()
 
-    def get_russell3000_symbols(self, cache_days: int = 7) -> set:
+    def get_russell3000_symbols(self) -> set:
         """
-        Retrieves the list of Russell 3000 symbols, using a cache to avoid
-        frequent refetching.
+        Retrieves the list of Russell 3000 symbols from the local CSV file.
         """
+        # backend/russell3000.csvが固定のパスであるため、直接参照する
+        # このスクリプト(hwb_data_manager.py)はbackendディレクトリにあることを想定
+        csv_path = Path(__file__).parent / 'russell3000.csv'
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-
-                # Check for cached symbols
-                query = f"SELECT symbol FROM russell3000_symbols WHERE last_updated > datetime('now', '-{cache_days} days')"
-                cached_symbols = {row[0] for row in cursor.execute(query).fetchall()}
-
-                if cached_symbols:
-                    logger.info(f"Loaded {len(cached_symbols)} symbols from cache.")
-                    return cached_symbols
-
-                # If cache is old or empty, fetch new symbols
-                logger.info("Symbol cache is outdated or empty. Fetching new list.")
-                symbols = self._fetch_russell3000_symbols()
-
-                if symbols:
-                    cursor.execute('DELETE FROM russell3000_symbols')
-                    cursor.executemany(
-                        'INSERT INTO russell3000_symbols (symbol) VALUES (?)',
-                        [(s,) for s in symbols]
-                    )
-                    conn.commit()
-                    logger.info(f"Cached {len(symbols)} new symbols.")
-
-                return symbols
-        except Exception as e:
-            logger.error(f"Failed to get Russell 3000 symbols: {e}", exc_info=True)
-            return set()
-
-    def _fetch_russell3000_symbols(self) -> set:
-        """iShares ETFからRussell 3000のシンボルリストを取得"""
-        symbols: Set[str] = set()
-        try:
-            # iShares Russell 3000 ETF (IWV)のホールディングスCSVを取得
-            today = datetime.now()
-            # The composition is updated annually in June, so fetching in July is ideal.
-            # We assume the fetched CSV is valid for one year.
-            # To ensure we get the data, we might need to check previous dates if today's fails.
-            # For simplicity, we'll try the last few days.
-            for i in range(365): # Try up to a year ago
-                date_to_try = today - timedelta(days=i)
-                date_str = date_to_try.strftime('%Y%m%d')
-                url = f"https://www.ishares.com/us/products/239714/ishares-russell-3000-etf/1467271812596.ajax?fileType=csv&fileName=IWV_holdings&dataType=fund&asOfDate={date_str}"
-
-                try:
-                    logger.info(f"Attempting to fetch Russell 3000 holdings for {date_str}...")
-                    response = self.session.get(url, timeout=30)
-                    response.raise_for_status()
-
-                    # Check if the response is valid CSV data and not an error page HTML
-                    if response.text.strip().startswith('<'):
-                        logger.warning(f"Received HTML instead of CSV for date {date_str}. Trying previous day.")
-                        continue
-
-                    lines = response.text.split('\n')
-
-                    # Find the start of the data (the line with "Ticker")
-                    data_start = -1
-                    for i, line in enumerate(lines):
-                        if 'Ticker' in line:
-                            data_start = i
-                            break
-
-                    if data_start == -1:
-                        logger.warning(f"Could not find 'Ticker' header in CSV for date {date_str}. Trying previous day.")
-                        continue
-
-                    csv_data = '\n'.join(lines[data_start:])
-                    df = pd.read_csv(StringIO(csv_data))
-
-                    if 'Ticker' in df.columns:
-                        symbols = set(df['Ticker'].dropna().str.strip())
-                        # Process symbols to replace dots with hyphens, common in stock tickers (e.g., BRK.B -> BRK-B)
-                        symbols = {s.replace('.', '-') for s in symbols if isinstance(s, str) and s != '-'}
-                        logger.info(f"Fetched {len(symbols)} Russell 3000 symbols from iShares ETF for date {date_str}")
-                        return symbols # Success, exit the loop
-
-                except requests.errors.RequestsError as re:
-                    # Specifically handle HTTP errors (like 404 Not Found) quietly
-                    logger.info(f"No data available for {date_str} (HTTP Status: {re.response.status_code if re.response else 'N/A'}). Trying previous day.")
-                    continue
-                except Exception as e:
-                     logger.error(f"An unexpected error occurred while fetching for {date_str}: {e}")
-                     # For unexpected errors, stop trying
-                     break
-
-            if not symbols:
-                 logger.error("Failed to fetch Russell 3000 symbols after trying multiple dates.")
-
+            logger.info(f"Loading symbols from {csv_path}...")
+            df = pd.read_csv(csv_path, header=None)
+            # 1列目のデータを抽出し、不要な空白を削除
+            symbols = set(df.iloc[:, 0].str.strip())
+            logger.info(f"Loaded {len(symbols)} symbols from the CSV file.")
             return symbols
-
+        except FileNotFoundError:
+            logger.error(f"The symbol file was not found at {csv_path}")
+            return set()
         except Exception as e:
-            logger.error(f"Failed to fetch Russell 3000 from iShares: {e}", exc_info=True)
+            logger.error(f"Failed to read or parse Russell 3000 symbols from CSV: {e}", exc_info=True)
             return set()
 
     def save_symbol_data(self, symbol: str, data: dict):
