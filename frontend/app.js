@@ -314,32 +314,45 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            this.showStatus(`${ticker}を分析中...`, 'info');
+            this.showStatus(`${ticker}のデータを確認中...`, 'info');
 
             try {
-                const response = await fetchWithAuth(`/api/hwb/analyze_ticker?ticker=${ticker}`);
+                // まず既存データを確認（force=false）
+                let response = await fetchWithAuth(`/api/hwb/analyze_ticker?ticker=${ticker}`);
 
                 if (!response.ok) {
                     if (response.status === 404) {
                         const error = await response.json();
-                        this.showStatus(`❌ ${error.detail}`, 'warning');
-                        return;
+                        this.showStatus(`ℹ️ ${error.detail}`, 'warning');
+
+                        // 「強制的に分析する」オプションを表示
+                        if (confirm(`${ticker}はまだ分析されていません。\n今すぐ分析しますか？（10-30秒かかります）`)) {
+                            this.showStatus(`${ticker}を分析中... お待ちください`, 'info');
+                            response = await fetchWithAuth(`/api/hwb/analyze_ticker?ticker=${ticker}&force=true`);
+
+                            if (!response.ok) {
+                                throw new Error(`分析に失敗しました: ${response.status}`);
+                            }
+                        } else {
+                            this.showStatus('分析をキャンセルしました。', 'info');
+                            return;
+                        }
+                    } else {
+                        throw new Error(`エラーが発生しました: ${response.status}`);
                     }
-                    throw new Error(`分析に失敗しました: ${response.status}`);
                 }
 
                 const symbolData = await response.json();
 
-                // モーダルを作成して結果を表示
+                // モーダルで表示
                 this.createModal(ticker);
                 this.renderAnalysisChart(symbolData);
 
-                // ステータス更新
                 const hasSignals = symbolData.signals && symbolData.signals.length > 0;
                 const statusMsg = hasSignals
                     ? `✅ ${ticker}: ${symbolData.signals.length}件のシグナル検出`
-                    : `ℹ️ ${ticker}: 現在シグナルなし（候補: ${symbolData.fvgs?.length || 0}件）`;
-                this.showStatus(statusMsg, hasSignals ? 'info' : 'warning');
+                    : `ℹ️ ${ticker}: 現在シグナルなし`;
+                this.showStatus(statusMsg, 'info');
 
             } catch (error) {
                 console.error('Analysis error:', error);

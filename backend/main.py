@@ -3,6 +3,7 @@ import os
 import json
 import re
 import traceback
+import logging
 from datetime import datetime, timedelta, timezone
 from fastapi import Depends, FastAPI, HTTPException, Header, status, Response, Request, Cookie
 from fastapi.staticfiles import StaticFiles
@@ -14,10 +15,15 @@ from typing import Dict, Any, Optional
 
 # Import security manager
 from .security_manager import security_manager
+from .hwb_data_manager import HWBDataManager
 
 # 既存のインポートに追加
 from .hwb_scanner import run_hwb_scan, analyze_single_ticker
 import asyncio
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Load environment variables from .env file
 load_dotenv()
@@ -349,29 +355,50 @@ def get_hwb_symbol_data(symbol: str, current_user: str = Depends(get_current_use
         raise HTTPException(status_code=500, detail=f"Could not retrieve data for symbol '{symbol}'.")
 
 @app.get("/api/hwb/analyze_ticker")
-async def analyze_ticker(ticker: str, current_user: str = Depends(get_current_user)):
-    """単一銘柄のHWB分析を実行"""
+async def analyze_ticker(ticker: str, force: bool = False, current_user: str = Depends(get_current_user)):
+    """
+    Analyzes a single ticker for HWB strategy.
+    - `force=false` (default): Returns existing JSON data if available, otherwise 404.
+    - `force=true`: Forces a re-analysis of the ticker.
+    """
     if not ticker:
         raise HTTPException(status_code=400, detail="Ticker symbol is required")
 
     try:
-        # ティッカーシンボルを大文字に変換し、不要なスペースを削除
         symbol = ticker.strip().upper()
+        data_manager = HWBDataManager()
 
+        if not force:
+            logger.info(f"Attempting to load cached data for {symbol}...")
+            existing_data = data_manager.load_symbol_data(symbol)
+            if existing_data:
+                logger.info(f"Returning cached data for {symbol}.")
+                return existing_data
+            else:
+                logger.info(f"No cached data found for {symbol}. Frontend will prompt for analysis.")
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"分析データが見つかりません。新規に分析しますか？"
+                )
+
+        # This part runs only when force=true
+        logger.info(f"Force re-analyzing data for {symbol}...")
+        from .hwb_scanner import analyze_single_ticker
         analysis_result = await analyze_single_ticker(symbol)
 
         if analysis_result is None:
             raise HTTPException(
                 status_code=404,
-                detail=f"No analysis data found for {symbol}. It might not meet the initial criteria or a signal is not currently present."
+                detail=f"{symbol}はHWB戦略の条件を満たしていないか、データ取得に失敗しました"
             )
 
         return analysis_result
 
+    except HTTPException:
+        raise
     except Exception as e:
-        # 予期せぬエラーのログ出力
-        print(f"Error analyzing ticker {ticker}: {e}")
-        raise HTTPException(status_code=500, detail=f"An unexpected error occurred while analyzing {ticker}.")
+        logger.error(f"Error analyzing ticker {ticker}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"分析中に予期せぬエラーが発生しました。")
 
 # Mount the frontend directory to serve static files
 # This must come AFTER all API routes
