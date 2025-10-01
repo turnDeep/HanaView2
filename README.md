@@ -1,3 +1,181 @@
+# HanaView Market Dashboard
+
+## 1. 概要 (Overview)
+
+HanaViewは、個人投資家が毎朝の市場チェックを効率化するための統合ダッシュボードです。
+このアプリケーションは、VIX、Fear & Greed Index、米国10年債などの主要な市場指標、S&P 500とNASDAQ 100のヒートマップ、経済指標カレンダー、HWB戦略に基づく銘柄スキャン機能などを一元的に表示します。
+
+データは毎日定時に自動で更新され、Push通知機能により最新情報をタイムリーに受け取ることができます。
+
+## 2. 主要機能
+
+### 2.1 市況分析
+- **VIX指数・米国10年債チャート**: 4時間足チャートでボラティリティと金利動向を把握
+- **Fear & Greed Index**: 市場センチメントをビジュアルゲージで表示
+- **AI解説**: OpenAI APIによる市況サマリーの自動生成
+
+### 2.2 ヒートマップ
+- **NASDAQ 100 & S&P 500**: 1日・1週間・1ヶ月のパフォーマンスヒートマップ
+- **セクターETF**: 主要11セクターのパフォーマンス
+- **AI解説**: 市場トレンドの自動分析
+
+### 2.3 ニュース分析
+- **今朝の3行サマリー**: Yahoo Finance等から取得したニュースをAIが要約
+- **主要トピック3選**: 重要ニュースの事実・解釈・市場影響を解説
+
+### 2.4 経済指標・決算カレンダー
+- **経済指標**: 重要度★★以上の米国経済指標（Monex提供）
+- **注目決算**: 主要米国・日本企業の決算スケジュール
+- **AI解説**: 各指標・決算の市場への影響分析
+
+### 2.5 HWB 200MA戦略スキャナー（新機能）
+- **Russell 3000銘柄の自動スキャン**: HWB（High-Water Mark Breakout）戦略に基づく銘柄検出
+- **リアルタイムチャート**: lightweight-chartsによる高度なチャート表示
+- **個別銘柄分析**: 任意のティッカーシンボルで詳細分析
+
+### 2.6 セキュリティ＆通知機能（新機能）
+- **PIN認証**: 6桁のPINによるアクセス制御
+- **Push通知**: データ更新時の自動通知（PWA対応）
+- **自動ログイン**: JWTトークンによる30日間の認証維持
+
+## 3. セットアップ手順 (Setup)
+
+### 3.1 前提条件
+- Docker & Docker Compose
+- OpenAI APIキー（[こちら](https://platform.openai.com/api-keys)から取得）
+
+### 3.2 環境変数の設定
+
+プロジェクトルートに `.env` ファイルを作成し、以下の設定を行います：
+
+```env
+# ======================================
+# 必須設定（2項目のみ）
+# ======================================
+
+# OpenAI APIキー（必須）
+OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# 認証用6桁PIN（必須）
+# デフォルト: 123456（本番環境では必ず変更してください）
+AUTH_PIN=123456
+
+# ======================================
+# オプション設定
+# ======================================
+
+# OpenAIモデル（任意）
+OPENAI_MODEL=gpt-4.1
+
+# Push通知の送信元メールアドレス（任意）
+VAPID_SUBJECT=mailto:your-email@example.com
+
+# JWTトークン有効期限（日数、デフォルト: 30）
+JWT_ACCESS_TOKEN_EXPIRE_DAYS=30
+
+# 特別ティッカー設定（任意）
+SPECIAL_TICKERS='{"2025/04/16": ["ASML", "(エーエスエムエル・ホールディングス)"]}'
+
+# Hanaメモファイルのパス（任意）
+HANA_MEMO_FILE=backend/hana-memo-202509.txt
+```
+
+**重要**: 以下のセキュリティキーは初回起動時に自動生成され、`data/security_keys.json`に保存されます。このファイルは必ずバックアップしてください。
+- `JWT_SECRET_KEY` (JWTトークン署名用)
+- `VAPID_PUBLIC_KEY` (Push通知用公開鍵)
+- `VAPID_PRIVATE_KEY` (Push通知用秘密鍵)
+
+### 3.3 起動手順
+
+```bash
+# 1. リポジトリをクローン
+git clone <repository_url>
+cd <repository_directory>
+
+# 2. Dockerコンテナをビルド・起動
+docker-compose up -d --build
+
+# 3. 初回起動後、セキュリティキーが生成されたことを確認
+# data/security_keys.json の存在を確認
+ls -la data/security_keys.json
+```
+
+初回起動には数分かかることがあります。起動後、ブラウザで `http://localhost` にアクセスし、設定したPIN（デフォルト: 123456）でログインしてください。
+
+## 4. 手動でのデータ更新 (Manual Data Update)
+
+データはcronによって自動更新されますが、管理者は以下の手順で手動更新も可能です：
+
+```bash
+# 1. コンテナ内でbashセッションを開始
+docker compose exec app bash
+
+# 2. データ取得（5〜10分程度）
+python -m backend.data_fetcher fetch
+
+# 3. レポート生成（AI解説含む）
+python -m backend.data_fetcher generate
+```
+
+**注意**: `fetch`コマンドは、S&P 500とNASDAQ 100の全銘柄（約600）の情報を取得するため、完了までに5〜10分程度かかります。
+
+## 5. HWBスキャナーの実行 (Running HWB Scanner)
+
+HWB戦略に基づくRussell 3000銘柄のスキャンを手動で実行できます：
+
+```bash
+# コンテナ内で実行
+docker compose exec app bash
+python -m backend.hwb_scanner_cli
+```
+
+スキャン結果は以下に保存されます：
+- **個別銘柄データ**: `data/hwb/symbols/{TICKER}.json`
+- **デイリーサマリー**: `data/hwb/daily/{YYYY-MM-DD}.json`
+- **最新サマリー**: `data/hwb/daily/latest.json`
+
+スキャンは毎日午前5:30（米国市場終了30分後）に自動実行されます。
+
+## 6. VPSへのデプロイ (Deployment to VPS)
+
+### 6.1 前提条件
+- VPS契約（Ubuntu/Debian推奨）
+- ドメイン取得（任意）
+- SSH接続環境
+
+### 6.2 サーバー初期設定
+
+```bash
+# Ubuntu/Debianの場合
+sudo apt-get update
+sudo apt-get install -y docker.io docker-compose git
+
+# Docker起動
+sudo systemctl start docker
+sudo systemctl enable docker
+```
+
+### 6.3 DNS設定（ドメイン使用時）
+
+ドメインのDNS設定で、VPSのIPアドレスを指す**Aレコード**を作成します：
+- **タイプ**: A
+- **名前**: `@` または `yourdomain.com`
+- **IPv4アドレス**: VPSのIPアドレス
+
+### 6.4 アプリケーションのデプロイ
+
+```bash
+# 1. リポジトリをクローン
+git clone <repository_url>
+cd <repository_directory>
+
+# 2. .envファイルを作成（必須項目を設定）
+nano .env
+
+# 3. 起動
+sudo docker-compose up -d --build
+```
+
 デプロイ完了後、ブラウザで `http://<VPSのIPアドレス>` または `http://<ドメイン>` にアクセスしてください。
 
 ## 7. 自動更新スケジュール
