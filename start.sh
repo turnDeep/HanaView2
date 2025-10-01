@@ -19,8 +19,9 @@ chmod +x "${ENV_FILE}"
 # IMPORTANT: Ensure timezone is properly set before starting cron
 echo "Setting timezone to Asia/Tokyo..."
 export TZ=Asia/Tokyo
-# Reconfigure timezone non-interactively
-dpkg-reconfigure -f noninteractive tzdata
+# The dpkg-reconfigure command can hang in non-interactive environments.
+# The timezone is already set by the Dockerfile's ln command and the TZ env var.
+# dpkg-reconfigure -f noninteractive tzdata
 
 # Enable cron logging
 echo "Enabling cron logging..."

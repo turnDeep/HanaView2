@@ -306,9 +306,45 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         async analyzeTicker() {
-            // This function is kept for single-ticker analysis but will now use the new API structure
-            // For this refactoring, we focus on the main summary view.
-            this.showStatus('単一分析は次期バージョンで対応します。', 'warning');
+            const input = document.getElementById('hwb-ticker-input');
+            const ticker = input.value.trim().toUpperCase();
+
+            if (!ticker) {
+                this.showStatus('ティッカーシンボルを入力してください', 'warning');
+                return;
+            }
+
+            this.showStatus(`${ticker}を分析中...`, 'info');
+
+            try {
+                const response = await fetchWithAuth(`/api/hwb/analyze_ticker?ticker=${ticker}`);
+
+                if (!response.ok) {
+                    if (response.status === 404) {
+                        const error = await response.json();
+                        this.showStatus(`❌ ${error.detail}`, 'warning');
+                        return;
+                    }
+                    throw new Error(`分析に失敗しました: ${response.status}`);
+                }
+
+                const symbolData = await response.json();
+
+                // モーダルを作成して結果を表示
+                this.createModal(ticker);
+                this.renderAnalysisChart(symbolData);
+
+                // ステータス更新
+                const hasSignals = symbolData.signals && symbolData.signals.length > 0;
+                const statusMsg = hasSignals
+                    ? `✅ ${ticker}: ${symbolData.signals.length}件のシグナル検出`
+                    : `ℹ️ ${ticker}: 現在シグナルなし（候補: ${symbolData.fvgs?.length || 0}件）`;
+                this.showStatus(statusMsg, hasSignals ? 'info' : 'warning');
+
+            } catch (error) {
+                console.error('Analysis error:', error);
+                this.showStatus(`❌ エラー: ${error.message}`, 'error');
+            }
         }
 
         async loadData() {
@@ -569,13 +605,61 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         renderAnalysisChart(symbolData) {
-             const container = document.getElementById('analysis-chart-container');
-             if (!container || !symbolData || !symbolData.chart_data || !symbolData.chart_data.candles || symbolData.chart_data.candles.length === 0) {
-                 container.innerHTML = '<p>Chart data is not available.</p>';
-                 return;
-             }
-            container.innerHTML = ''; // Clear loading spinner
-            this.renderLightweightChart(container, symbolData.chart_data, 800, 600); // Larger chart
+            const container = document.getElementById('analysis-chart-container');
+            if (!container) return;
+
+            // ローディングスピナーをクリア
+            container.innerHTML = '';
+
+            // チャートデータがない場合
+            if (!symbolData || !symbolData.chart_data || !symbolData.chart_data.candles || symbolData.chart_data.candles.length === 0) {
+                container.innerHTML = `
+                    <div class="hwb-analysis-info">
+                        <h3>${symbolData.symbol} の分析結果</h3>
+                        <p class="info-message">このシンボルはHWB戦略の条件を満たしていません。</p>
+                        <div class="analysis-details">
+                            <h4>トレンドチェック:</h4>
+                            <ul>
+                                <li>週足SMA200上: ${symbolData.trend_check?.weekly_sma200 ? '✅' : '❌'}</li>
+                                <li>日足SMA200上: ${symbolData.trend_check?.daily_sma200 ? '✅' : '❌'}</li>
+                                <li>日足EMA200上: ${symbolData.trend_check?.daily_ema200 ? '✅' : '❌'}</li>
+                            </ul>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+
+            // 詳細情報セクションを追加
+            const infoSection = document.createElement('div');
+            infoSection.className = 'hwb-analysis-info';
+            infoSection.innerHTML = `
+                <h3>${symbolData.symbol} の分析結果</h3>
+                <div class="analysis-stats">
+                    <div class="stat-item">
+                        <span class="stat-label">セットアップ:</span>
+                        <span class="stat-value">${symbolData.setups?.length || 0}件</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">FVG:</span>
+                        <span class="stat-value">${symbolData.fvgs?.length || 0}件</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">シグナル:</span>
+                        <span class="stat-value signal">${symbolData.signals?.length || 0}件</span>
+                    </div>
+                </div>
+                <p class="last-updated">最終スキャン: ${symbolData.last_scan || 'N/A'}</p>
+            `;
+            container.appendChild(infoSection);
+
+            // チャートコンテナを作成
+            const chartDiv = document.createElement('div');
+            chartDiv.className = 'hwb-chart-container-large';
+            container.appendChild(chartDiv);
+
+            // チャートを描画
+            this.renderLightweightChart(chartDiv, symbolData.chart_data, 900, 600);
         }
     }
 
