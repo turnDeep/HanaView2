@@ -134,7 +134,7 @@ python -m backend.hwb_scanner_cli
 - **デイリーサマリー**: `data/hwb/daily/{YYYY-MM-DD}.json`
 - **最新サマリー**: `data/hwb/daily/latest.json`
 
-スキャンは毎日午前5:30（米国市場終了30分後）に自動実行されます。
+スキャンは毎日午前6:35に自動実行されます。
 
 ## 6. VPSへのデプロイ (Deployment to VPS)
 
@@ -186,7 +186,7 @@ sudo docker-compose up -d --build
 |------|------|------|
 | 6:15 JST | データ取得 | 市場データ・ニュース・経済指標の取得 |
 | 6:28 JST | レポート生成 | AI解説・コラム生成、Push通知送信 |
-| 5:30 JST | HWBスキャン | Russell 3000銘柄のスキャン（火〜土） |
+| 6:35 JST | HWBスキャン | Russell 3000銘柄のスキャン |
 
 **実行日**: 月曜〜金曜（市場営業日）
 
