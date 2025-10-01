@@ -1,761 +1,326 @@
 import json
 import os
-import sqlite3
-from datetime import datetime, timedelta
-import pandas as pd
-import numpy as np
-import yfinance as yf
-from curl_cffi import requests
 import asyncio
 import concurrent.futures
-from typing import List, Dict, Set, Tuple, Optional
+from datetime import datetime, timedelta
+from typing import List, Dict, Optional, Any
+import pandas as pd
+from .hwb_data_manager import HWBDataManager
 import logging
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
-import mplfinance as mpf
-from io import BytesIO
-import base64
 import warnings
-warnings.filterwarnings("ignore")
 
+warnings.filterwarnings("ignore")
 logger = logging.getLogger(__name__)
 
-# 設定
-DB_PATH = "data/hwb_cache.db"
-RUSSELL3000_CACHE_DAYS = 7
+# --- Constants ---
 BATCH_SIZE = 20
 MAX_WORKERS = 5
 SETUP_LOOKBACK_DAYS = 60
 FVG_SEARCH_DAYS = 30
-SIGNAL_COOLING_PERIOD = 14
-
-# HWB戦略パラメータ
-PROXIMITY_PERCENTAGE = 0.05
-FVG_ZONE_PROXIMITY = 0.10
 BREAKOUT_THRESHOLD = 0.001
-MA_PERIOD = 200
-
-
-class HWBDatabaseManager:
-    """SQLiteデータベース管理（簡略版）"""
-
-    def __init__(self, db_path: str):
-        self.db_path = db_path
-        self.init_database()
-
-    def init_database(self):
-        """データベースの初期化"""
-        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
-
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-
-            # Russell 3000銘柄テーブル
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS russell3000_symbols (
-                    symbol TEXT PRIMARY KEY,
-                    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
-
-            # 株価データテーブル
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS stock_data (
-                    symbol TEXT,
-                    date DATE,
-                    open REAL,
-                    high REAL,
-                    low REAL,
-                    close REAL,
-                    volume INTEGER,
-                    sma200 REAL,
-                    ema200 REAL,
-                    weekly_sma200 REAL,
-                    PRIMARY KEY (symbol, date)
-                )
-            ''')
-
-            # シグナル履歴テーブル
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS signal_history (
-                    symbol TEXT,
-                    signal_date DATE,
-                    signal_type TEXT,
-                    score REAL,
-                    PRIMARY KEY (symbol, signal_date)
-                )
-            ''')
-
-            conn.commit()
-
-    def get_russell3000_symbols(self) -> Set[str]:
-        """Russell 3000銘柄リストを取得"""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-
-            # キャッシュチェック
-            cursor.execute('''
-                SELECT symbol FROM russell3000_symbols
-                WHERE last_updated > datetime('now', '-7 days')
-            ''')
-
-            cached_symbols = {row[0] for row in cursor.fetchall()}
-
-            if cached_symbols:
-                logger.info(f"Russell 3000銘柄をDBから取得: {len(cached_symbols)}銘柄")
-                return cached_symbols
-
-            # 新規取得
-            symbols = self._fetch_russell3000_symbols()
-
-            if symbols:
-                cursor.execute('DELETE FROM russell3000_symbols')
-                cursor.executemany(
-                    'INSERT INTO russell3000_symbols (symbol) VALUES (?)',
-                    [(s,) for s in symbols]
-                )
-                conn.commit()
-
-            return symbols
-
-    def _fetch_russell3000_symbols(self) -> Set[str]:
-        """Russell 3000銘柄を取得"""
-        symbols = set()
-
-        try:
-            # S&P500を取得
-            sp500_url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
-            tables = pd.read_html(sp500_url)
-            sp500_symbols = tables[0]["Symbol"].str.replace(".", "-", regex=False).tolist()
-            symbols.update(sp500_symbols)
-
-            # NASDAQ100を追加
-            nasdaq100_url = "https://en.wikipedia.org/wiki/Nasdaq-100"
-            tables = pd.read_html(nasdaq100_url)
-            nasdaq_symbols = tables[4]["Ticker"].tolist() if len(tables) > 4 else []
-            symbols.update(nasdaq_symbols)
-
-            # 追加の主要銘柄
-            additional = ["PLTR", "SNOW", "COIN", "HOOD", "SOFI", "RIVN", "LCID"]
-            symbols.update(additional)
-
-            logger.info(f"取得した銘柄数: {len(symbols)}")
-            return symbols
-
-        except Exception as e:
-            logger.error(f"銘柄取得エラー: {e}")
-            # 最小限のリスト
-            return {"AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA"}
-
+FVG_ZONE_PROXIMITY = 0.10
 
 class HWBAnalyzer:
-    """HWB戦略分析クラス（HanaView版）"""
+    """Performs the HWB analysis. This class is stateless."""
 
-    def __init__(self, db_manager: HWBDatabaseManager):
-        self.db = db_manager
-        self.session = requests.Session(impersonate="safari15_5")
+    def check_rule1(self, df_daily: pd.DataFrame, df_weekly: pd.DataFrame) -> Dict[str, Any]:
+        """Rule ①: Trend Check"""
+        results = {"status": "failed", "weekly_sma200": False, "daily_sma200": False, "daily_ema200": False}
+        if df_daily is None or df_daily.empty or df_weekly is None or df_weekly.empty:
+            return results
 
-    def get_stock_data(self, symbol: str) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
-        """株価データ取得"""
-        try:
-            stock = yf.Ticker(symbol, session=self.session)
-
-            # 日足データ（6ヶ月）
-            df_daily = stock.history(period="6mo", interval="1d")
-            if df_daily.empty or len(df_daily) < 100:
-                return None, None
-
-            # 週足データ（2年）
-            df_weekly = stock.history(period="2y", interval="1wk")
-            if df_weekly.empty or len(df_weekly) < 52:
-                return None, None
-
-            # タイムゾーン除去
-            df_daily.index = df_daily.index.tz_localize(None)
-            df_weekly.index = df_weekly.index.tz_localize(None)
-
-            # 移動平均を計算
-            df_daily['SMA200'] = df_daily['Close'].rolling(window=min(200, len(df_daily)), min_periods=50).mean()
-            df_daily['EMA200'] = df_daily['Close'].ewm(span=min(200, len(df_daily)), min_periods=50, adjust=False).mean()
-            df_weekly['SMA200'] = df_weekly['Close'].rolling(window=min(200, len(df_weekly)), min_periods=50).mean()
-
-            # 週足SMAを日足に結合
-            df_daily['Weekly_SMA200'] = np.nan
-            df_daily['Weekly_Close'] = np.nan
-
-            for idx, row in df_weekly.iterrows():
-                if pd.notna(row['SMA200']):
-                    week_start = idx - pd.Timedelta(days=idx.weekday())
-                    week_end = week_start + pd.Timedelta(days=6)
-                    mask = (df_daily.index >= week_start) & (df_daily.index <= week_end)
-                    if mask.any():
-                        df_daily.loc[mask, 'Weekly_SMA200'] = row['SMA200']
-                        df_daily.loc[mask, 'Weekly_Close'] = row['Close']
-
-            df_daily['Weekly_SMA200'] = df_daily['Weekly_SMA200'].ffill()
-            df_daily['Weekly_Close'] = df_daily['Weekly_Close'].ffill()
-
-            return df_daily, df_weekly
-
-        except Exception as e:
-            logger.debug(f"データ取得エラー ({symbol}): {e}")
-            return None, None
-
-    def check_rule1(self, df_daily: pd.DataFrame, df_weekly: pd.DataFrame) -> bool:
-        """ルール①: トレンドチェック"""
-        if df_daily is None or df_weekly is None:
-            return False
-
+        df_daily['weekly_sma200_val'] = df_weekly['sma200'].reindex(df_daily.index, method='ffill')
         latest = df_daily.iloc[-1]
 
-        # 週足条件
-        weekly_condition = (
-            pd.notna(latest.get('Weekly_SMA200')) and
-            pd.notna(latest.get('Weekly_Close')) and
-            latest['Weekly_Close'] > latest['Weekly_SMA200']
-        )
+        results["weekly_sma200"] = bool(pd.notna(latest.get('weekly_sma200_val')) and latest['close'] > latest['weekly_sma200_val'])
+        results["daily_sma200"] = bool(pd.notna(latest.get('sma200')) and latest['close'] > latest['sma200'])
+        results["daily_ema200"] = bool(pd.notna(latest.get('ema200')) and latest['close'] > latest['ema200'])
 
-        # 日足条件（どちらかのMAを上回る）
-        daily_condition = (
-            pd.notna(latest.get('SMA200')) and
-            pd.notna(latest.get('EMA200')) and
-            (latest['Close'] > latest['SMA200'] or latest['Close'] > latest['EMA200'])
-        )
+        if results["weekly_sma200"] and (results["daily_sma200"] or results["daily_ema200"]):
+            results["status"] = "passed"
 
-        return weekly_condition and daily_condition
+        return results
 
     def find_setups(self, df_daily: pd.DataFrame) -> List[Dict]:
-        """ルール②: セットアップ検出"""
+        """Rule ②: Setup Detection"""
         setups = []
-
-        valid_data = df_daily[(df_daily['SMA200'].notna()) & (df_daily['EMA200'].notna())].tail(SETUP_LOOKBACK_DAYS)
-
+        valid_data = df_daily[df_daily['sma200'].notna() & df_daily['ema200'].notna()].tail(SETUP_LOOKBACK_DAYS)
         for i in range(len(valid_data)):
             row = valid_data.iloc[i]
-            zone_upper = max(row['SMA200'], row['EMA200'])
-            zone_lower = min(row['SMA200'], row['EMA200'])
-
-            # ゾーン内チェック
-            if (zone_lower <= row['Open'] <= zone_upper and
-                zone_lower <= row['Close'] <= zone_upper):
-
+            zone_upper = max(row['sma200'], row['ema200'])
+            zone_lower = min(row['sma200'], row['ema200'])
+            if zone_lower <= row['open'] <= zone_upper and zone_lower <= row['close'] <= zone_upper:
                 setups.append({
-                    'date': valid_data.index[i],
-                    'open': row['Open'],
-                    'close': row['Close'],
-                    'high': row['High'],
-                    'low': row['Low'],
-                    'sma200': row['SMA200'],
-                    'ema200': row['EMA200'],
-                    'zone_upper': zone_upper,
-                    'zone_lower': zone_lower
+                    'id': f"setup_{valid_data.index[i].strftime('%Y%m%d')}",
+                    'date': valid_data.index[i].strftime('%Y-%m-%d'),
+                    'zone_upper': zone_upper, 'zone_lower': zone_lower,
+                    'sma200': row['sma200'], 'ema200': row['ema200'],
+                    'candle': {'open': row['open'], 'close': row['close'], 'high': row['high'], 'low': row['low']}
                 })
-
         return setups
 
-    def detect_fvg(self, df_daily: pd.DataFrame, setup_date: pd.Timestamp) -> List[Dict]:
-        """ルール③: FVG検出"""
+    def detect_fvg(self, df_daily: pd.DataFrame, setup: Dict) -> List[Dict]:
+        """Rule ③: FVG Detection"""
         fvgs = []
-
+        setup_date = datetime.strptime(setup['date'], '%Y-%m-%d').date()
+        df_daily.index = pd.to_datetime(df_daily.index).date
         try:
-            setup_idx = df_daily.index.get_loc(setup_date)
+            setup_idx_loc = df_daily.index.get_loc(setup_date)
         except KeyError:
             return fvgs
 
-        search_end = min(setup_idx + FVG_SEARCH_DAYS, len(df_daily) - 1)
-
-        for i in range(setup_idx + 3, search_end + 1):
-            candle_1 = df_daily.iloc[i-2]
-            candle_2 = df_daily.iloc[i-1]
-            candle_3 = df_daily.iloc[i]
-
-            # Bullish FVG
-            gap = candle_3['Low'] - candle_1['High']
-
-            if gap > 0 and gap / candle_1['High'] > 0.001:
-                # MA近接チェック
-                if self._check_ma_proximity(candle_3, candle_1):
+        search_end = min(setup_idx_loc + FVG_SEARCH_DAYS, len(df_daily) - 2)
+        for i in range(setup_idx_loc + 2, search_end):
+            c1, c2, c3 = df_daily.iloc[i-2], df_daily.iloc[i-1], df_daily.iloc[i]
+            if c3['low'] > c1['high']:
+                ma_prox = self._check_ma_proximity(c3, c1)
+                if ma_prox['condition_a_met'] or ma_prox['condition_b_met']:
+                    gap = c3['low'] - c1['high']
                     fvgs.append({
-                        'formation_date': df_daily.index[i],
-                        'upper_bound': candle_3['Low'],
-                        'lower_bound': candle_1['High'],
-                        'gap_size': gap,
-                        'gap_percentage': gap / candle_1['High'] * 100
+                        'id': f"fvg_{df_daily.index[i].strftime('%Y%m%d')}_{i}",
+                        'setup_id': setup['id'], 'formation_date': df_daily.index[i].strftime('%Y-%m-%d'),
+                        'candle_1_high': c1['high'], 'candle_3_low': c3['low'],
+                        'upper_bound': c3['low'], 'lower_bound': c1['high'],
+                        'gap_size': gap, 'gap_percentage': (gap / c1['high']) * 100,
+                        'ma_proximity': ma_prox, 'status': 'active'
                     })
-
         return fvgs
 
-    def _check_ma_proximity(self, candle_3: pd.Series, candle_1: pd.Series) -> bool:
-        """MA近接条件チェック"""
-        if pd.isna(candle_3.get('SMA200')) or pd.isna(candle_3.get('EMA200')):
-            return False
+    def _check_ma_proximity(self, c3: pd.Series, c1: pd.Series) -> Dict[str, Any]:
+        """Check if FVG is near a key moving average."""
+        result = {'condition_a_met': False, 'condition_b_met': False, 'closest_ma': None, 'distance_percentage': 999}
+        if pd.isna(c3.get('sma200')) or pd.isna(c3.get('ema200')): return result
 
-        # 条件A: 3本目の始値or終値がMA±5%以内
-        for price in [candle_3['Open'], candle_3['Close']]:
-            for ma in [candle_3['SMA200'], candle_3['EMA200']]:
-                if abs(price - ma) / ma <= PROXIMITY_PERCENTAGE:
-                    return True
-
-        # 条件B: FVGゾーン中心がMA±10%以内
-        fvg_center = (candle_1['High'] + candle_3['Low']) / 2
-        for ma in [candle_3['SMA200'], candle_3['EMA200']]:
-            if abs(fvg_center - ma) / ma <= FVG_ZONE_PROXIMITY:
-                return True
-
-        return False
-
-    def check_breakout(self, df_daily: pd.DataFrame, setup: Dict, fvg: Dict) -> Optional[Dict]:
-        """ルール④: ブレイクアウトチェック"""
-        setup_date = setup['date']
-        fvg_date = fvg['formation_date']
-
-        try:
-            setup_idx = df_daily.index.get_loc(setup_date)
-            fvg_idx = df_daily.index.get_loc(fvg_date)
-        except KeyError:
-            return None
-
-        # レジスタンス計算
-        resistance_start = setup_idx + 1
-        resistance_end = fvg_idx
-
-        if resistance_end <= resistance_start:
-            resistance_start = max(0, setup_idx - 10)
-            resistance_end = setup_idx + 1
-
-        resistance_high = df_daily.iloc[resistance_start:resistance_end]['High'].max()
-
-        # FVG下限チェック
-        post_fvg = df_daily.iloc[fvg_idx + 1:]
-        if len(post_fvg) > 0:
-            if post_fvg['Low'].min() < fvg['lower_bound']:
-                return None
-
-        # ブレイクアウトチェック（最新日のみ）
-        current = df_daily.iloc[-1]
-        if current['Close'] > resistance_high * (1 + BREAKOUT_THRESHOLD):
-            return {
-                'breakout_date': df_daily.index[-1],
-                'breakout_price': current['Close'],
-                'resistance_price': resistance_high,
-                'breakout_percentage': (current['Close'] / resistance_high - 1) * 100
-            }
-
-        return None
-
-    def create_chart_base64(self, symbol: str, df_daily: pd.DataFrame,
-                            signal_type: str = None, setup: Dict = None,
-                            fvg: Dict = None, breakout: Dict = None) -> str:
-        """チャートをBase64エンコード画像として生成"""
-        try:
-            # 表示期間（直近180日）
-            df_plot = df_daily.tail(180).copy()
-
-            if len(df_plot) < 20:
-                return None
-
-            # mplfinanceスタイル
-            mc = mpf.make_marketcolors(
-                up='green', down='red', edge='inherit',
-                wick={'up':'green', 'down':'red'}, volume='in'
-            )
-            s = mpf.make_mpf_style(marketcolors=mc, gridstyle=':', y_on_right=True)
-
-            # 追加プロット
-            apds = []
-
-            # 移動平均線
-            if 'SMA200' in df_plot.columns and not df_plot['SMA200'].isna().all():
-                apds.append(mpf.make_addplot(df_plot['SMA200'], color='#9370DB', width=2))
-
-            if 'EMA200' in df_plot.columns and not df_plot['EMA200'].isna().all():
-                apds.append(mpf.make_addplot(df_plot['EMA200'], color='purple', width=2))
-
-            if 'Weekly_SMA200' in df_plot.columns and not df_plot['Weekly_SMA200'].isna().all():
-                apds.append(mpf.make_addplot(df_plot['Weekly_SMA200'], color='blue', width=3))
-
-            # タイトル設定
-            title = f'{symbol} - HWB Analysis'
-            if signal_type == 's2_breakout':
-                title += ' [SIGNAL]'
-            elif signal_type == 's1_fvg':
-                title += ' [CANDIDATE]'
-
-            # チャート作成
-            fig, axes = mpf.plot(
-                df_plot, type='candle', style=s, volume=True,
-                addplot=apds if apds else None,
-                title=title, returnfig=True,
-                figsize=(10, 6), panel_ratios=(3, 1)
-            )
-
-            ax = axes[0]
-
-            # セットアップゾーンの描画
-            if setup and setup['date'] in df_plot.index:
-                setup_idx = df_plot.index.get_loc(setup['date'])
-                rect = patches.Rectangle(
-                    (setup_idx - 0.5, setup['zone_lower']),
-                    1, setup['zone_upper'] - setup['zone_lower'],
-                    linewidth=2, edgecolor='yellow', facecolor='yellow', alpha=0.3
-                )
-                ax.add_patch(rect)
-
-            # FVGゾーンの描画
-            if fvg and fvg['formation_date'] in df_plot.index:
-                fvg_idx = df_plot.index.get_loc(fvg['formation_date'])
-                rect = patches.Rectangle(
-                    (fvg_idx - 2.5, fvg['lower_bound']),
-                    3, fvg['gap_size'],
-                    linewidth=2, edgecolor='green', facecolor='green', alpha=0.3
-                )
-                ax.add_patch(rect)
-
-            # ブレイクアウトマーカー
-            if breakout and breakout['breakout_date'] in df_plot.index:
-                bo_idx = df_plot.index.get_loc(breakout['breakout_date'])
-                ax.scatter(
-                    bo_idx, breakout['breakout_price'] * 0.98,
-                    marker='^', color='blue', s=200, zorder=5
-                )
-                # レジスタンスライン
-                ax.axhline(
-                    y=breakout['resistance_price'],
-                    color='red', linestyle='--', alpha=0.5
-                )
-
-            # Base64エンコード
-            buf = BytesIO()
-            plt.savefig(buf, format='png', bbox_inches='tight', dpi=100)
-            buf.seek(0)
-            plt.close()
-
-            import base64
-            img_base64 = base64.b64encode(buf.read()).decode('utf-8')
-            return f"data:image/png;base64,{img_base64}"
-
-        except Exception as e:
-            logger.error(f"チャート生成エラー ({symbol}): {e}")
-            return None
-
-
-class HWBScanner:
-    """HWBスキャナーメインクラス"""
-
-    def __init__(self):
-        self.db = HWBDatabaseManager(DB_PATH)
-        self.analyzer = HWBAnalyzer(self.db)
-        self.signal_history = {}
-        self.recent_signals = {}
-
-    async def scan_all_symbols(self, progress_callback=None):
-        """全銘柄スキャン（非同期）"""
-        # Russell 3000銘柄を取得
-        symbols = list(self.db.get_russell3000_symbols())
-        total = len(symbols)
-
-        logger.info(f"スキャン開始: {total}銘柄")
-
-        monitoring_candidates = []
-        today_signals = []
-        all_charts = {}
-
-        # 進捗状況
-        processed = 0
-
-        # バッチ処理
-        for i in range(0, total, BATCH_SIZE):
-            batch = symbols[i:i + BATCH_SIZE]
-
-            # 並列処理
-            with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-                futures = []
-                for symbol in batch:
-                    futures.append(executor.submit(self._analyze_symbol, symbol))
-
-                for future in concurrent.futures.as_completed(futures):
-                    try:
-                        result = future.result(timeout=30)
-                        if result:
-                            if result['signal_type'] == 's2_breakout':
-                                today_signals.append(result)
-                            elif result['signal_type'] == 's1_fvg':
-                                monitoring_candidates.append(result)
-
-                            # チャートデータを保存
-                            if result.get('chart'):
-                                all_charts[result['symbol']] = result['chart']
-
-                    except Exception as e:
-                        logger.error(f"分析エラー: {e}")
-
-                    processed += 1
-
-                    # 進捗通知
-                    if progress_callback and processed % 10 == 0:
-                        await progress_callback(processed, total)
-
-            # CPU負荷軽減
-            await asyncio.sleep(0.1)
-
-        # 結果をスコア順にソート
-        monitoring_candidates.sort(key=lambda x: x.get('score', 0), reverse=True)
-        today_signals.sort(key=lambda x: x.get('score', 0), reverse=True)
-
-        # JSONデータ作成
-        result = {
-            'scan_date': datetime.now().strftime('%Y-%m-%d'),
-            'scan_time': datetime.now().strftime('%H:%M:%S'),
-            'total_scanned': total,
-            'summary': {
-                'monitoring_candidates': [s['symbol'] for s in monitoring_candidates],
-                'today_signals': [s['symbol'] for s in today_signals],
-                'recent_signals': self.recent_signals
-            },
-            'signals': today_signals[:20],  # 上位20件
-            'candidates': monitoring_candidates[:30],  # 上位30件
-            'charts': all_charts
-        }
-
+        fvg_center = (c1['high'] + c3['low']) / 2
+        for ma_name, ma_val in [('sma200', c3['sma200']), ('ema200', c3['ema200'])]:
+            dist = abs(fvg_center - ma_val) / ma_val
+            if dist < result['distance_percentage']:
+                result['distance_percentage'] = dist
+                result['closest_ma'] = ma_name
+            if dist <= FVG_ZONE_PROXIMITY:
+                result['condition_b_met'] = True
         return result
 
-    def _analyze_symbol(self, symbol: str) -> Optional[Dict]:
-        """個別銘柄分析"""
+    def check_breakout(self, df_daily: pd.DataFrame, setup: Dict, fvg: Dict) -> Optional[Dict]:
+        """Rule ④: Breakout Check"""
+        setup_date = datetime.strptime(setup['date'], '%Y-%m-%d').date()
+        fvg_date = datetime.strptime(fvg['formation_date'], '%Y-%m-%d').date()
+        df_daily.index = pd.to_datetime(df_daily.index).date
         try:
-            # データ取得
-            df_daily, df_weekly = self.analyzer.get_stock_data(symbol)
+            setup_idx, fvg_idx = df_daily.index.get_loc(setup_date), df_daily.index.get_loc(fvg_date)
+        except KeyError: return None
 
-            if df_daily is None or df_weekly is None:
-                return None
+        resistance_high = df_daily.iloc[setup_idx + 1 : fvg_idx]['high'].max()
+        if pd.isna(resistance_high): resistance_high = df_daily.iloc[setup_idx]['high']
 
-            # ルール①チェック
-            if not self.analyzer.check_rule1(df_daily, df_weekly):
-                return None
+        if not df_daily.iloc[fvg_idx + 1:].empty and df_daily.iloc[fvg_idx + 1:]['low'].min() < fvg['lower_bound']:
+            fvg['status'] = 'violated'
+            return None
 
-            # ルール②セットアップ検出
-            setups = self.analyzer.find_setups(df_daily)
-            if not setups:
-                return None
+        current = df_daily.iloc[-1]
+        if current['close'] > resistance_high * (1 + BREAKOUT_THRESHOLD):
+            fvg['status'] = 'consumed'
+            return {
+                'id': f"signal_{df_daily.index[-1].strftime('%Y%m%d')}",
+                'setup_id': setup['id'], 'fvg_id': fvg['id'], 'signal_type': 's2_breakout',
+                'signal_date': df_daily.index[-1].strftime('%Y-%m-%d'),
+                'breakout_price': current['close'], 'resistance_price': resistance_high,
+                'breakout_percentage': (current['close'] / resistance_high - 1) * 100
+            }
+        return None
 
-            # 各セットアップをチェック
-            for setup in setups:
-                # 冷却期間チェック
-                if not self._should_process(symbol, setup['date']):
-                    continue
+class HWBScanner:
+    """Main class for scanning symbols using the HWB strategy."""
+    def __init__(self):
+        self.data_manager = HWBDataManager()
+        self.analyzer = HWBAnalyzer()
 
-                # ルール③FVG検出
-                fvgs = self.analyzer.detect_fvg(df_daily, setup['date'])
+    async def scan_all_symbols(self, progress_callback=None):
+        """Scan all symbols, generate JSON files, and create a daily summary."""
+        symbols = list(self.data_manager.get_russell3000_symbols())
+        total = len(symbols)
+        logger.info(f"Scan starting for {total} symbols.")
+        scan_start_time = datetime.now()
 
-                for fvg in fvgs:
-                    # ルール④ブレイクアウトチェック
-                    breakout = self.analyzer.check_breakout(df_daily, setup, fvg)
+        all_results = []
+        processed_count = 0
+        for i in range(0, total, BATCH_SIZE):
+            batch = symbols[i:i + BATCH_SIZE]
+            with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+                future_to_symbol = {executor.submit(self._analyze_and_save_symbol, symbol): symbol for symbol in batch}
+                for future in concurrent.futures.as_completed(future_to_symbol):
+                    processed_count += 1
+                    try:
+                        result = future.result()
+                        if result: all_results.append(result)
+                    except Exception as exc:
+                        logger.error(f"'{future_to_symbol[future]}' generated an exception: {exc}", exc_info=True)
+                    if progress_callback: await progress_callback(processed_count, total)
+            await asyncio.sleep(0.1)
 
-                    # スコア計算
-                    score = self._calculate_score(setup, fvg, breakout)
+        summary = self._create_daily_summary(all_results, total, scan_start_time)
+        self.data_manager.save_daily_summary(summary)
+        logger.info("Scan complete and daily summary saved.")
+        return summary
 
-                    if breakout:
-                        # シグナル発生
-                        chart = self.analyzer.create_chart_base64(
-                            symbol, df_daily, 's2_breakout', setup, fvg, breakout
-                        )
+    def _analyze_and_save_symbol(self, symbol: str) -> Optional[Dict]:
+        """Analyzes a single symbol and saves the result to a JSON file."""
+        try:
+            data = self.data_manager.get_stock_data_with_cache(symbol)
+            if not data: return None
+            df_daily, df_weekly = data
 
-                        return {
-                            'symbol': symbol,
-                            'signal_type': 's2_breakout',
-                            'score': score,
-                            'setup': {
-                                'date': setup['date'].strftime('%Y-%m-%d'),
-                                'zone_width': (setup['zone_upper'] - setup['zone_lower']) / setup['close']
-                            },
-                            'fvg': {
-                                'date': fvg['formation_date'].strftime('%Y-%m-%d'),
-                                'gap_percentage': fvg['gap_percentage']
-                            },
-                            'breakout': {
-                                'date': breakout['breakout_date'].strftime('%Y-%m-%d'),
-                                'percentage': breakout['breakout_percentage']
-                            },
-                            'chart': chart
-                        }
-                    elif fvg:
-                        # 監視候補
-                        chart = self.analyzer.create_chart_base64(
-                            symbol, df_daily, 's1_fvg', setup, fvg, None
-                        )
+            # Defensive coding: remove any potential duplicate dates from the index
+            df_daily = df_daily[~df_daily.index.duplicated(keep='last')]
+            df_weekly = df_weekly[~df_weekly.index.duplicated(keep='last')]
 
-                        return {
-                            'symbol': symbol,
-                            'signal_type': 's1_fvg',
-                            'score': score,
-                            'setup': {
-                                'date': setup['date'].strftime('%Y-%m-%d'),
-                                'zone_width': (setup['zone_upper'] - setup['zone_lower']) / setup['close']
-                            },
-                            'fvg': {
-                                'date': fvg['formation_date'].strftime('%Y-%m-%d'),
-                                'gap_percentage': fvg['gap_percentage']
-                            },
-                            'chart': chart
-                        }
+            existing_data = self.data_manager.load_symbol_data(symbol) or {
+                "symbol": symbol, "last_updated": None, "setups": [], "fvgs": [], "signals": []
+            }
+
+            trend_check = self.analyzer.check_rule1(df_daily, df_weekly)
+            if trend_check["status"] != "passed":
+                return None # No need to analyze further if trend is not bullish
+
+            new_setups = self.analyzer.find_setups(df_daily)
+            if not new_setups: return None
+
+            # Merge setups: keep old, add new if ID doesn't exist
+            existing_setup_ids = {s['id'] for s in existing_data['setups']}
+            for setup in new_setups:
+                if setup['id'] not in existing_setup_ids:
+                    existing_data['setups'].append(setup)
+
+            new_analysis_found = False
+            for setup in existing_data['setups']:
+                new_fvgs = self.analyzer.detect_fvg(df_daily, setup)
+                existing_fvg_ids = {f['id'] for f in existing_data['fvgs']}
+                for fvg in new_fvgs:
+                    if fvg['id'] not in existing_fvg_ids:
+                        existing_data['fvgs'].append(fvg)
+                        new_analysis_found = True
+
+            for fvg in existing_data['fvgs']:
+                if fvg['status'] != 'active': continue
+                breakout = self.analyzer.check_breakout(df_daily, next(s for s in existing_data['setups'] if s['id'] == fvg['setup_id']), fvg)
+                if breakout:
+                    existing_signal_ids = {s['id'] for s in existing_data['signals']}
+                    if breakout['id'] not in existing_signal_ids:
+                        breakout['score'] = self._calculate_score(setup, fvg, breakout)
+                        existing_data['signals'].append(breakout)
+                        new_analysis_found = True
+
+            if new_analysis_found:
+                existing_data['last_updated'] = datetime.now().isoformat()
+                existing_data['last_scan'] = datetime.now().strftime('%Y-%m-%d')
+                existing_data['trend_check'] = trend_check
+
+                # Generate and add chart data before saving
+                existing_data['chart_data'] = self._generate_lightweight_chart_data(existing_data, df_daily)
+
+                self.data_manager.save_symbol_data(symbol, existing_data)
+
+                # Return a summary for the daily report
+                latest_signal = existing_data['signals'][-1] if existing_data['signals'] else None
+                if latest_signal:
+                    return {"symbol": symbol, "signal_type": "s2_breakout", "score": latest_signal['score'], "signal_date": latest_signal['signal_date']}
+                else:
+                    # It's a candidate if new FVGs were found but no breakout
+                    latest_fvg = existing_data['fvgs'][-1]
+                    return {"symbol": symbol, "signal_type": "s1_fvg", "score": self._calculate_score(setup, latest_fvg, None), "fvg_date": latest_fvg['formation_date']}
 
             return None
 
         except Exception as e:
-            logger.debug(f"分析エラー ({symbol}): {e}")
+            logger.error(f"Error analyzing symbol '{symbol}': {e}", exc_info=True)
             return None
-
-    def _should_process(self, symbol: str, setup_date: pd.Timestamp) -> bool:
-        """冷却期間チェック"""
-        if symbol not in self.signal_history:
-            return True
-
-        last_signal = self.signal_history.get(symbol)
-        if last_signal:
-            days_elapsed = (datetime.now() - last_signal).days
-            return days_elapsed >= SIGNAL_COOLING_PERIOD
-
-        return True
 
     def _calculate_score(self, setup: Dict, fvg: Dict, breakout: Optional[Dict]) -> int:
-        """スコア計算（0-100）"""
+        """Calculates a score for the signal/candidate (0-100)."""
         score = 0
-
-        # セットアップスコア（最大30点）
-        zone_width = (setup['zone_upper'] - setup['zone_lower']) / setup['close']
-        if zone_width < 0.005:
-            score += 30
-        elif zone_width < 0.01:
-            score += 20
-        else:
-            score += 10
-
-        # FVGスコア（最大40点）
-        if fvg['gap_percentage'] > 0.5:
-            score += 40
-        elif fvg['gap_percentage'] > 0.3:
-            score += 30
-        elif fvg['gap_percentage'] > 0.1:
-            score += 20
-        else:
-            score += 10
-
-        # ブレイクアウトスコア（最大30点）
+        # Setup score (max 30)
+        zone_width_perc = (setup['zone_upper'] - setup['zone_lower']) / setup['candle']['close']
+        score += max(0, 30 - (zone_width_perc * 2000))
+        # FVG score (max 40)
+        score += min(40, fvg.get('gap_percentage', 0) * 50)
+        # Breakout score (max 30)
         if breakout:
-            if breakout['breakout_percentage'] > 1.0:
-                score += 30
-            elif breakout['breakout_percentage'] > 0.5:
-                score += 20
-            else:
-                score += 10
+            score += min(30, breakout.get('breakout_percentage', 0) * 20)
+        return int(min(score, 100))
 
-        return min(score, 100)
+    def _generate_lightweight_chart_data(self, symbol_data: dict, df_daily: pd.DataFrame) -> dict:
+        """Generates a data object compatible with lightweight-charts."""
+        df_plot = df_daily.tail(180).copy()
+        df_plot.index = pd.to_datetime(df_plot.index)
 
+        def format_series(df, column):
+            series = df[[column]].dropna()
+            return [{"time": idx.strftime('%Y-%m-%d'), "value": row[column]} for idx, row in series.iterrows()]
 
-# エクスポート用関数
+        candles = [{"time": idx.strftime('%Y-%m-%d'), "open": r.open, "high": r.high, "low": r.low, "close": r.close} for idx, r in df_plot.iterrows()]
+
+        zones = []
+        for setup in symbol_data.get('setups', []):
+            zones.append({
+                "type": "setup", "id": setup['id'],
+                "startTime": setup['date'], "endTime": datetime.now().strftime('%Y-%m-%d'),
+                "topValue": setup['zone_upper'], "bottomValue": setup['zone_lower'],
+                "fillColor": "rgba(255, 215, 0, 0.2)", "borderColor": "#FFD700"
+            })
+        for fvg in symbol_data.get('fvgs', []):
+             zones.append({
+                "type": "fvg", "id": fvg['id'],
+                "startTime": fvg['formation_date'], "endTime": datetime.now().strftime('%Y-%m-%d'),
+                "topValue": fvg['upper_bound'], "bottomValue": fvg['lower_bound'],
+                "fillColor": "rgba(0, 200, 83, 0.2)", "borderColor": "#00C853"
+            })
+
+        markers = []
+        for signal in symbol_data.get('signals', []):
+            markers.append({
+                "time": signal['signal_date'], "position": "belowBar", "color": "#2962FF",
+                "shape": "arrowUp", "text": "B", "size": 2, "id": signal['id']
+            })
+
+        return {
+            'candles': candles,
+            'sma200': format_series(df_plot, 'sma200'),
+            'ema200': format_series(df_plot, 'ema200'),
+            'weekly_sma200': format_series(df_plot, 'weekly_sma200_val'),
+            'zones': zones,
+            'markers': markers
+        }
+
+    def _create_daily_summary(self, results: List[Dict], total_scanned: int, start_time: datetime) -> Dict:
+        """Creates the daily summary JSON from the scan results."""
+        end_time = datetime.now()
+        signals = sorted([r for r in results if r['signal_type'] == 's2_breakout'], key=lambda x: x['score'], reverse=True)
+        candidates = sorted([r for r in results if r['signal_type'] == 's1_fvg'], key=lambda x: x['score'], reverse=True)
+
+        return {
+            "scan_date": end_time.strftime('%Y-%m-%d'),
+            "scan_time": end_time.strftime('%H:%M:%S'),
+            "scan_duration_seconds": (end_time - start_time).total_seconds(),
+            "total_scanned": total_scanned,
+            "summary": {
+                "signals_count": len(signals),
+                "candidates_count": len(candidates),
+                "signals": signals,
+                "candidates": candidates,
+            },
+            "performance": { "avg_time_per_symbol_ms": ((end_time - start_time).total_seconds() / total_scanned) * 1000 if total_scanned > 0 else 0 }
+        }
+
 async def run_hwb_scan(progress_callback=None):
-    """HWBスキャン実行"""
+    """Entry point for running the HWB scan."""
     scanner = HWBScanner()
-    result = await scanner.scan_all_symbols(progress_callback)
-
-    # 結果をファイルに保存
-    output_path = 'data/hwb_signals.json'
-    os.makedirs('data', exist_ok=True)
-
-    # チャートデータを別途保存（サイズが大きいため）
-    charts = result.pop('charts', {})
-
-    with open(output_path, 'w', encoding='utf-8') as f:
-        json.dump(result, f, indent=2, ensure_ascii=False)
-
-    # チャートは別ファイルに保存
-    charts_path = 'data/hwb_charts.json'
-    with open(charts_path, 'w', encoding='utf-8') as f:
-        json.dump(charts, f, ensure_ascii=False)
-
-    logger.info(f"スキャン結果を保存: {output_path}")
-
-    return result
+    summary = await scanner.scan_all_symbols(progress_callback)
+    logger.info(f"Scan complete. Signals: {summary['summary']['signals_count']}, Candidates: {summary['summary']['candidates_count']}")
+    return summary
 
 async def analyze_single_ticker(symbol: str) -> Optional[Dict]:
-    """単一銘柄の分析を実行"""
-    try:
-        # HWBScannerの主要コンポーネントを初期化
-        db_manager = HWBDatabaseManager(DB_PATH)
-        analyzer = HWBAnalyzer(db_manager)
-
-        # データ取得
-        df_daily, df_weekly = analyzer.get_stock_data(symbol)
-        if df_daily is None or df_weekly is None:
-            logger.info(f"No data for symbol: {symbol}")
-            return None
-
-        # ルール① トレンドチェック
-        if not analyzer.check_rule1(df_daily, df_weekly):
-            logger.info(f"Trend check failed for {symbol}")
-            return None
-
-        # ルール② セットアップ検出
-        setups = analyzer.find_setups(df_daily)
-        if not setups:
-            logger.info(f"No setups found for {symbol}")
-            return None
-
-        # 最新のセットアップから順に評価
-        for setup in reversed(setups):
-            # ルール③ FVG検出
-            fvgs = analyzer.detect_fvg(df_daily, setup['date'])
-            if not fvgs:
-                continue
-
-            # 最新のFVGを評価
-            fvg = fvgs[-1]
-
-            # ルール④ ブレイクアウトチェック
-            breakout = analyzer.check_breakout(df_daily, setup, fvg)
-
-            # ダミースコア計算クラス
-            class DummyScanner:
-                def _calculate_score(self, setup, fvg, breakout):
-                    return HWBScanner()._calculate_score(setup, fvg, breakout)
-
-            score = DummyScanner()._calculate_score(setup, fvg, breakout)
-
-            # シグナルの種類を決定
-            signal_type = 's2_breakout' if breakout else 's1_fvg'
-
-            # チャート生成
-            chart = analyzer.create_chart_base64(
-                symbol, df_daily, signal_type, setup, fvg, breakout
-            )
-
-            # 結果を整形
-            result = {
-                'symbol': symbol,
-                'signal_type': signal_type,
-                'score': score,
-                'setup': {
-                    'date': setup['date'].strftime('%Y-%m-%d'),
-                    'zone_width': (setup['zone_upper'] - setup['zone_lower']) / setup['close']
-                },
-                'fvg': {
-                    'date': fvg['formation_date'].strftime('%Y-%m-%d'),
-                    'gap_percentage': fvg['gap_percentage']
-                },
-                'breakout': None,
-                'chart': chart
-            }
-
-            if breakout:
-                result['breakout'] = {
-                    'date': breakout['breakout_date'].strftime('%Y-%m-%d'),
-                    'percentage': breakout['breakout_percentage']
-                }
-
-            return result
-
-        logger.info(f"No actionable signal found for {symbol} after checking all setups.")
-        return None
-
-    except Exception as e:
-        logger.error(f"Error analyzing single ticker {symbol}: {e}")
-        return None
+    """Analyzes a single ticker and returns its full JSON data."""
+    scanner = HWBScanner()
+    scanner._analyze_and_save_symbol(symbol) # Run analysis and save
+    # Load the potentially updated data to return it
+    return scanner.data_manager.load_symbol_data(symbol)

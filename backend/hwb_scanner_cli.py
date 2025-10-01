@@ -4,7 +4,7 @@
 import asyncio
 import sys
 import logging
-from backend.hwb_scanner import run_hwb_scan
+from .hwb_scanner import run_hwb_scan
 
 logging.basicConfig(
     level=logging.INFO,
