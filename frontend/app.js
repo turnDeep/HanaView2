@@ -523,8 +523,7 @@ renderLightweightChart(container, chartData, width, height) {
         timeScale: { borderColor: '#cccccc', timeVisible: true },
     });
 
-    // ✅ v5対応：addCandlestickSeries()メソッドを使用
-    const candleSeries = chart.addCandlestickSeries({
+    const candleSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
         upColor: '#26a69a',
         downColor: '#ef5350',
         borderDownColor: '#ef5350',
@@ -534,22 +533,21 @@ renderLightweightChart(container, chartData, width, height) {
     });
     candleSeries.setData(chartData.candles);
 
-    // ✅ v5対応：addLineSeries()メソッドを使用
-    const sma200 = chart.addLineSeries({
+    const sma200 = chart.addSeries(LightweightCharts.LineSeries, {
         color: '#9370DB',
         lineWidth: 2,
         title: 'SMA200'
     });
     sma200.setData(chartData.sma200);
 
-    const ema200 = chart.addLineSeries({
+    const ema200 = chart.addSeries(LightweightCharts.LineSeries, {
         color: '#800080',
         lineWidth: 2,
         title: 'EMA200'
     });
     ema200.setData(chartData.ema200);
 
-    const weeklySma200 = chart.addLineSeries({
+    const weeklySma200 = chart.addSeries(LightweightCharts.LineSeries, {
         color: '#0000FF',
         lineWidth: 3,
         title: 'Weekly SMA200'
@@ -558,7 +556,7 @@ renderLightweightChart(container, chartData, width, height) {
 
     // ゾーン描画（Primitiveを使用する場合）
     if (chartData.zones && chartData.zones.length > 0) {
-        const auxiliarySeries = chart.addLineSeries({
+        const auxiliarySeries = chart.addSeries(LightweightCharts.LineSeries, {
             visible: false,
             priceLineVisible: false
         });
@@ -750,8 +748,7 @@ function renderLightweightChart(containerId, data, title) {
         handleScale: false
     });
 
-    // ✅ v5対応：addCandlestickSeries()メソッドを使用
-    const candlestickSeries = chart.addCandlestickSeries({
+    const candlestickSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
         upColor: '#26a69a',
         downColor: '#ef5350',
         borderDownColor: '#ef5350',
