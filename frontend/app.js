@@ -523,8 +523,8 @@ renderLightweightChart(container, chartData, width, height) {
         timeScale: { borderColor: '#cccccc', timeVisible: true },
     });
 
-    // ✅ v5対応：CandlestickSeries
-    const candleSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
+    // ✅ v5対応：addCandlestickSeries()メソッドを使用
+    const candleSeries = chart.addCandlestickSeries({
         upColor: '#26a69a',
         downColor: '#ef5350',
         borderDownColor: '#ef5350',
@@ -534,31 +534,31 @@ renderLightweightChart(container, chartData, width, height) {
     });
     candleSeries.setData(chartData.candles);
 
-    // ✅ v5対応：LineSeries
-    const sma200 = chart.addSeries(LightweightCharts.LineSeries, {
+    // ✅ v5対応：addLineSeries()メソッドを使用
+    const sma200 = chart.addLineSeries({
         color: '#9370DB',
         lineWidth: 2,
         title: 'SMA200'
     });
     sma200.setData(chartData.sma200);
 
-    const ema200 = chart.addSeries(LightweightCharts.LineSeries, {
+    const ema200 = chart.addLineSeries({
         color: '#800080',
         lineWidth: 2,
         title: 'EMA200'
     });
     ema200.setData(chartData.ema200);
 
-    const weeklySma200 = chart.addSeries(LightweightCharts.LineSeries, {
+    const weeklySma200 = chart.addLineSeries({
         color: '#0000FF',
         lineWidth: 3,
         title: 'Weekly SMA200'
     });
     weeklySma200.setData(chartData.weekly_sma200);
 
-    // ゾーン描画
+    // ゾーン描画（Primitiveを使用する場合）
     if (chartData.zones && chartData.zones.length > 0) {
-        const auxiliarySeries = chart.addSeries(LightweightCharts.LineSeries, {
+        const auxiliarySeries = chart.addLineSeries({
             visible: false,
             priceLineVisible: false
         });
@@ -750,8 +750,8 @@ function renderLightweightChart(containerId, data, title) {
         handleScale: false
     });
 
-    // ✅ v5対応：addSeries(CandlestickSeries)を使用
-    const candlestickSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
+    // ✅ v5対応：addCandlestickSeries()メソッドを使用
+    const candlestickSeries = chart.addCandlestickSeries({
         upColor: '#26a69a',
         downColor: '#ef5350',
         borderDownColor: '#ef5350',
