@@ -1,25 +1,15 @@
-# Python
+# Ignore the data directory, which contains the SQLite cache and generated JSON files.
+/data/
+
+# Ignore Python bytecode and cache
 __pycache__/
 *.pyc
-*.pyo
-*.pyd
 
-# Environment
+# Ignore scratch directory for verification scripts
+/jules-scratch/
+
+# Ignore environment files
 .env
 
-# Data files
-data/security_keys.json
-data/data.json
-data/data_*.json
-data/data_raw.json
-
-# Log files
-logs/
+# Ignore log files
 *.log
-
-# IDE / Editor folders
-.vscode/
-.idea/
-
-# Generated images
-frontend/fear_and_greed_gauge.png

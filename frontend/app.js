@@ -270,293 +270,236 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // --- HWB 200MA Manager ---
+    // --- HWB 200MA Manager (New Version) ---
     function initHWB200MA() {
         window.hwb200Manager = new HWB200MAManager();
-        console.log('HWB200MAManager initialized');
+        console.log('HWB200MAManager (v2) initialized');
     }
 
     class HWB200MAManager {
         constructor() {
-            this.data = null;
-            this.isAnalysisView = false;
+            this.summaryData = null;
             this.initEventListeners();
         }
 
         initEventListeners() {
             const analyzeBtn = document.getElementById('hwb-analyze-btn');
-            if (analyzeBtn) {
-                analyzeBtn.addEventListener('click', () => {
-                    if (this.isAnalysisView) {
-                        this.resetView();
-                    } else {
-                        this.analyzeTicker();
-                    }
-                });
-            }
+            if(analyzeBtn) analyzeBtn.addEventListener('click', () => this.analyzeTicker());
+
+            const contentDiv = document.getElementById('hwb-content');
+            if(contentDiv) contentDiv.addEventListener('click', (e) => {
+                const card = e.target.closest('.hwb-chart-card');
+                if (card && !card.dataset.chartLoaded) {
+                    this.loadSymbolChart(card);
+                }
+            });
         }
 
         async analyzeTicker() {
-            const tickerInput = document.getElementById('hwb-ticker-input');
-            const ticker = tickerInput.value.trim().toUpperCase();
-
-            if (!ticker) {
-                this.showStatus('ティッカーを入力してください。', 'error');
-                return;
-            }
-
-            const loadingDiv = document.getElementById('hwb-loading');
-            const analysisContentDiv = document.getElementById('hwb-analysis-content');
-            const summaryContentDiv = document.getElementById('hwb-content');
-            const analyzeBtn = document.getElementById('hwb-analyze-btn');
-
-            loadingDiv.style.display = 'block';
-            analysisContentDiv.innerHTML = '';
-            summaryContentDiv.style.display = 'none';
-            analyzeBtn.disabled = true;
-            this.showStatus(`「${ticker}」を分析中...`);
-
-            try {
-                const response = await fetchWithAuth(`/api/hwb/analyze_ticker?ticker=${ticker}`);
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.detail || `分析エラー: ${response.statusText}`);
-                }
-                const result = await response.json();
-
-                // 分析結果を描画
-                this.renderSingleAnalysis(analysisContentDiv, result);
-                analysisContentDiv.style.display = 'block';
-
-                // UIをリセットモードに切り替え
-                this.isAnalysisView = true;
-                analyzeBtn.textContent = 'リセット';
-                this.showStatus(`✅ 「${ticker}」の分析結果`, 'info');
-
-            } catch (error) {
-                console.error('Ticker analysis error:', error);
-                this.showStatus(`❌ エラー: ${error.message}`, 'error');
-                // エラー時はサマリーを再表示
-                summaryContentDiv.style.display = 'block';
-            } finally {
-                loadingDiv.style.display = 'none';
-                analyzeBtn.disabled = false;
-            }
+            // This function is kept for single-ticker analysis but will now use the new API structure
+            // For this refactoring, we focus on the main summary view.
+            this.showStatus('単一分析は次期バージョンで対応します。', 'warning');
         }
-
-        resetView() {
-            const tickerInput = document.getElementById('hwb-ticker-input');
-            const analysisContentDiv = document.getElementById('hwb-analysis-content');
-            const summaryContentDiv = document.getElementById('hwb-content');
-            const analyzeBtn = document.getElementById('hwb-analyze-btn');
-
-            this.isAnalysisView = false;
-
-            tickerInput.value = '';
-            analysisContentDiv.innerHTML = '';
-            analysisContentDiv.style.display = 'none';
-            summaryContentDiv.style.display = 'block';
-            analyzeBtn.textContent = '分析';
-
-            this.showStatus(''); // ステータスメッセージをクリア
-            this.loadData(); // 元のデータを再表示
-        }
-
-        renderSingleAnalysis(container, analysisData) {
-            container.innerHTML = ''; // Clear previous content
-            const card = this.createChartCard(analysisData);
-            if (card) {
-                container.appendChild(card);
-            } else {
-                container.innerHTML = `<div class="card"><p>分析結果の表示に失敗しました。</p></div>`;
-            }
-        }
-
 
         async loadData() {
+            this.showStatus('最新のサマリーを読み込み中...', 'info');
             try {
-                const statusResponse = await fetchWithAuth('/api/hwb/status');
-                const status = await statusResponse.json();
-
-                if (!status.has_data) {
-                    this.showStatus('データがありません。スキャンを実行してください。', 'warning');
-                    document.getElementById('hwb-content').innerHTML =
-                        '<div class="card"><p>データがありません。「スキャン実行」ボタンをクリックしてください。</p></div>';
+                const response = await fetchWithAuth('/api/hwb/daily/latest');
+                if (!response.ok) {
+                    if (response.status === 404) {
+                        this.showStatus('データがありません。スキャンを実行してください。', 'warning');
+                        document.getElementById('hwb-content').innerHTML =
+                            '<div class="card"><p>データがありません。スキャンを実行してください。</p></div>';
+                    } else {
+                        throw new Error(`サーバーエラー: ${response.status}`);
+                    }
                     return;
                 }
 
-                this.showStatus(
-                    `最終スキャン: ${status.last_scan} | ` +
-                    `${status.total_scanned}銘柄スキャン | ` +
-                    `シグナル: ${status.signals_count}件 | ` +
-                    `候補: ${status.candidates_count}件`
-                );
-
-                const dataResponse = await fetchWithAuth('/api/hwb/data');
-                this.data = await dataResponse.json();
-
+                this.summaryData = await response.json();
                 this.render();
 
+                const { scan_date, summary } = this.summaryData;
+                this.showStatus(
+                    `最終スキャン: ${scan_date} | シグナル: ${summary.signals_count} | 候補: ${summary.candidates_count}`,
+                    'info'
+                );
+
             } catch (error) {
-                console.error('HWBデータ読み込みエラー:', error);
-                this.showStatus('❌ データ読み込みエラー', 'error');
+                console.error('HWB summary loading error:', error);
+                this.showStatus(`❌ データ読み込みエラー: ${error.message}`, 'error');
             }
         }
 
         render() {
-            if (!this.data) return;
-
+            if (!this.summaryData) return;
             const container = document.getElementById('hwb-content');
-            container.innerHTML = '';
+            container.innerHTML = ''; // Clear previous content
 
             this.renderSummary(container);
-
-            if (this.data.signals && this.data.signals.length > 0) {
-                this.renderSignalCharts(container);
-            }
-
-            if (this.data.candidates && this.data.candidates.length > 0) {
-                this.renderCandidateCharts(container);
-            }
+            this.renderLists(container);
         }
 
         renderSummary(container) {
+            const { scan_date, scan_time, total_scanned, summary } = this.summaryData;
             const summaryDiv = document.createElement('div');
             summaryDiv.className = 'hwb-summary';
-
-            const summary = this.data.summary || {};
-            const scanDate = this.data.scan_date || '';
-            const scanTime = this.data.scan_time || '';
-
             summaryDiv.innerHTML = `
                 <h2>🤖 AI判定システム - HWB Strategy</h2>
                 <div class="scan-info">
-                    スキャン日時: ${scanDate} ${scanTime} |
-                    処理銘柄: ${this.data.total_scanned || 0}
+                    スキャン日時: ${scan_date} ${scan_time} | 処理銘柄: ${total_scanned}
                 </div>
-
-                <div class="hwb-summary-section">
-                    <h3>🚀 当日シグナル（ブレイクアウト）</h3>
-                    <div class="hwb-ticker-list">
-                        ${this.renderTickers(summary.today_signals || [], 'signal')}
+                <div class="hwb-summary-grid">
+                    <div>
+                        <h3>🚀 当日シグナル</h3>
+                        <p class="summary-count">${summary.signals_count}</p>
                     </div>
-                </div>
-
-                <div class="hwb-summary-section">
-                    <h3>📍 監視候補（FVG検出）</h3>
-                    <div class="hwb-ticker-list">
-                        ${this.renderTickers(summary.monitoring_candidates || [], 'candidate')}
-                    </div>
-                </div>
-
-                <div class="hwb-summary-section">
-                    <h3>📈 直近シグナル（3営業日以内）</h3>
-                    <div class="hwb-ticker-list">
-                        ${this.renderRecentSignals(summary.recent_signals || {})}
+                    <div>
+                        <h3>📍 監視候補</h3>
+                        <p class="summary-count">${summary.candidates_count}</p>
                     </div>
                 </div>
             `;
-
             container.appendChild(summaryDiv);
         }
 
-        renderTickers(tickers, type) {
-            if (tickers.length === 0) return '<span style="color: #999;">なし</span>';
+        renderLists(container) {
+            const { signals = [], candidates = [] } = this.summaryData.summary;
 
-            return tickers.slice(0, 20).map(ticker =>
-                `<span class="hwb-ticker ${type}">${ticker}</span>`
-            ).join('');
-        }
-
-        renderRecentSignals(signals) {
-            const items = [];
-            for (const [days, tickers] of Object.entries(signals)) {
-                if (tickers && tickers.length > 0) {
-                    tickers.forEach(ticker => {
-                        items.push(`<span class="hwb-ticker recent">${ticker} (${days}日前)</span>`);
-                    });
-                }
+            if (signals.length > 0) {
+                this.renderSection(container, '🚀 当日シグナル', signals, 'signal');
             }
-            return items.length > 0 ? items.join('') : '<span style="color: #999;">なし</span>';
+            if (candidates.length > 0) {
+                this.renderSection(container, '📍 監視候補', candidates, 'candidate');
+            }
         }
 
-        renderSignalCharts(container) {
+        renderSection(container, title, items, type) {
             const section = document.createElement('div');
             section.className = 'hwb-charts-section';
-            section.innerHTML = '<h2>🚀 当日シグナル - 詳細チャート</h2>';
+            section.innerHTML = `<h2>${title}</h2>`;
 
             const grid = document.createElement('div');
             grid.className = 'hwb-chart-grid';
 
-            const signals = this.data.signals || [];
-            signals.forEach(signal => {
-                const chartCard = this.createChartCard(signal);
-                if (chartCard) grid.appendChild(chartCard);
+            items.forEach(item => {
+                const card = this.createPlaceholderCard(item, type);
+                grid.appendChild(card);
             });
 
             section.appendChild(grid);
             container.appendChild(section);
         }
 
-        renderCandidateCharts(container) {
-            const section = document.createElement('div');
-            section.className = 'hwb-charts-section';
-            section.innerHTML = '<h2>📍 監視候補 - 詳細チャート</h2>';
-
-            const grid = document.createElement('div');
-            grid.className = 'hwb-chart-grid';
-
-            const candidates = (this.data.candidates || []).slice(0, 10);
-            candidates.forEach(candidate => {
-                const chartCard = this.createChartCard(candidate);
-                if (chartCard) grid.appendChild(chartCard);
-            });
-
-            section.appendChild(grid);
-            container.appendChild(section);
-        }
-
-        createChartCard(signal) {
+        createPlaceholderCard(item, type) {
             const card = document.createElement('div');
             card.className = 'hwb-chart-card';
+            card.dataset.symbol = item.symbol;
 
-            const scoreClass = signal.score >= 80 ? 'high' :
-                              signal.score >= 60 ? 'medium' : 'low';
-
-            const signalType = signal.signal_type === 's2_breakout' ?
-                              'ブレイクアウト' : 'FVG検出';
-
-            let infoText = '';
-            if (signal.setup) {
-                infoText += `Setup: ${signal.setup.date} `;
-            }
-            if (signal.fvg) {
-                infoText += `| FVG: ${signal.fvg.gap_percentage?.toFixed(2)}% `;
-            }
-            if (signal.breakout) {
-                infoText += `| Breakout: +${signal.breakout.percentage?.toFixed(2)}%`;
-            }
+            const scoreClass = item.score >= 80 ? 'high' : item.score >= 60 ? 'medium' : 'low';
+            const signalType = type === 'signal' ? 'ブレイクアウト' : 'FVG検出';
 
             card.innerHTML = `
                 <div class="hwb-chart-header">
-                    <span class="hwb-chart-symbol">${signal.symbol}</span>
-                    <span class="hwb-chart-score ${scoreClass}">Score: ${signal.score}/100</span>
+                    <span class="hwb-chart-symbol">${item.symbol}</span>
+                    <span class="hwb-chart-score ${scoreClass}">Score: ${item.score}/100</span>
                 </div>
                 <div class="hwb-chart-info">
-                    <span>${signalType}</span>
-                    <span>${infoText}</span>
+                    <span>${signalType} on ${item.signal_date || item.fvg_date}</span>
+                </div>
+                <div class="hwb-chart-placeholder">
+                    <div class="loading-spinner-small"></div>
+                    <p>クリックしてチャートを読込</p>
                 </div>
             `;
+            return card;
+        }
 
-            if (signal.chart || this.data.charts?.[signal.symbol]) {
-                const img = document.createElement('img');
-                img.className = 'hwb-chart-image';
-                img.src = signal.chart || this.data.charts[signal.symbol];
-                img.alt = `${signal.symbol} chart`;
-                card.appendChild(img);
+        async loadSymbolChart(card) {
+            const symbol = card.dataset.symbol;
+            card.dataset.chartLoaded = 'loading';
+
+            const placeholder = card.querySelector('.hwb-chart-placeholder');
+            placeholder.innerHTML = `<div class="loading-spinner-small"></div><p>チャートデータを読込中...</p>`;
+
+            try {
+                const response = await fetchWithAuth(`/api/hwb/symbols/${symbol}`);
+                if (!response.ok) throw new Error(`Failed to load data for ${symbol}`);
+
+                const symbolData = await response.json();
+
+                placeholder.style.display = 'none'; // Hide placeholder
+
+                const chartContainer = document.createElement('div');
+                chartContainer.className = 'hwb-chart-container';
+                card.appendChild(chartContainer);
+
+                // In the next step, this will call the lightweight-charts rendering function
+                this.renderLightweightChart(chartContainer, symbolData.chart_data);
+
+                card.dataset.chartLoaded = 'true';
+
+            } catch (error) {
+                console.error(`Error loading chart for ${symbol}:`, error);
+                placeholder.innerHTML = `<p class="error-text">❌ チャート読込失敗</p>`;
+                card.dataset.chartLoaded = 'error';
+            }
+        }
+
+        renderLightweightChart(container, chartData) {
+            if (!container || !chartData || !chartData.candles || chartData.candles.length === 0) {
+                container.innerHTML = '<p>Chart data is not available.</p>';
+                return;
             }
 
-            return card;
+            const chart = LightweightCharts.createChart(container, {
+                width: container.clientWidth,
+                height: 300,
+                layout: { backgroundColor: '#ffffff', textColor: '#333' },
+                grid: { vertLines: { color: '#e1e1e1' }, horzLines: { color: '#e1e1e1' } },
+                timeScale: { borderColor: '#cccccc', timeVisible: true },
+            });
+
+            const candleSeries = chart.addCandlestickSeries({
+                upColor: '#26a69a', downColor: '#ef5350', borderDownColor: '#ef5350',
+                borderUpColor: '#26a69a', wickDownColor: '#ef5350', wickUpColor: '#26a69a',
+            });
+            candleSeries.setData(chartData.candles);
+
+            const sma200 = chart.addLineSeries({ color: '#9370DB', lineWidth: 2, title: 'SMA200' });
+            sma200.setData(chartData.sma200);
+
+            const ema200 = chart.addLineSeries({ color: '#800080', lineWidth: 2, title: 'EMA200' });
+            ema200.setData(chartData.ema200);
+
+            const weeklySma200 = chart.addLineSeries({ color: '#0000FF', lineWidth: 3, title: 'Weekly SMA200' });
+            weeklySma200.setData(chartData.weekly_sma200);
+
+            // Use the new RectanglePrimitive
+            const auxiliarySeries = chart.addLineSeries({ visible: false, priceLineVisible: false });
+            chartData.zones.forEach(zone => {
+                const p1 = { time: new Date(zone.startTime).getTime() / 1000, price: zone.topValue };
+                const p2 = { time: new Date(zone.endTime).getTime() / 1000, price: zone.bottomValue };
+                const rectPrimitive = new RectanglePrimitive({
+                    points: [p1, p2],
+                    fillColor: zone.fillColor,
+                    borderColor: zone.borderColor,
+                    borderWidth: 1.5
+                });
+                auxiliarySeries.attachPrimitive(rectPrimitive);
+            });
+
+            if (chartData.markers && chartData.markers.length > 0) {
+                candleSeries.setMarkers(chartData.markers);
+            }
+
+            chart.timeScale().fitContent();
+
+            new ResizeObserver(entries => {
+                if (entries.length > 0 && entries[0].contentRect.width > 0) {
+                    chart.applyOptions({ width: entries[0].contentRect.width });
+                }
+            }).observe(container);
         }
 
         showStatus(message, type = 'info') {
@@ -564,14 +507,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (statusDiv) {
                 statusDiv.textContent = message;
                 statusDiv.className = `hwb-status-info ${type}`;
-
-                if (type === 'error') {
-                    statusDiv.style.color = '#dc3545';
-                } else if (type === 'warning') {
-                    statusDiv.style.color = '#ffc107';
-                } else {
-                    statusDiv.style.color = 'var(--text-secondary)';
-                }
             }
         }
     }

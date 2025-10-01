@@ -300,58 +300,39 @@ async def trigger_hwb_scan(current_user: str = Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/hwb/data")
-def get_hwb_data(current_user: str = Depends(get_current_user)):
-    """HWBデータ取得"""
+@app.get("/api/hwb/daily/latest")
+def get_hwb_latest_summary(current_user: str = Depends(get_current_user)):
+    """Retrieves the latest daily HWB scan summary."""
     try:
-        # メインデータ読み込み
-        data_path = 'data/hwb_signals.json'
-        if not os.path.exists(data_path):
-            return {"error": "データが見つかりません。スキャンを実行してください。"}
+        summary_path = os.path.join(DATA_DIR, 'hwb', 'daily', 'latest.json')
+        if not os.path.exists(summary_path):
+            raise HTTPException(status_code=404, detail="Latest summary not found. Please run a scan.")
 
-        with open(data_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-
-        # チャートデータ読み込み
-        charts_path = 'data/hwb_charts.json'
-        if os.path.exists(charts_path):
-            with open(charts_path, 'r', encoding='utf-8') as f:
-                charts = json.load(f)
-                data['charts'] = charts
-
-        return data
-
+        with open(summary_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error reading latest HWB summary: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Could not retrieve HWB summary.")
 
-@app.get("/api/hwb/status")
-def get_hwb_status(current_user: str = Depends(get_current_user)):
-    """HWBスキャンステータス確認"""
+@app.get("/api/hwb/symbols/{symbol}")
+def get_hwb_symbol_data(symbol: str, current_user: str = Depends(get_current_user)):
+    """Retrieves the detailed analysis data for a specific symbol."""
     try:
-        data_path = 'data/hwb_signals.json'
-        if os.path.exists(data_path):
-            # ファイルの最終更新時刻を取得
-            mtime = os.path.getmtime(data_path)
-            last_scan = datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S')
+        # Basic validation to prevent directory traversal
+        if not re.match(r'^[A-Z0-9\-\.]+$', symbol.upper()):
+            raise HTTPException(status_code=400, detail="Invalid symbol format.")
 
-            with open(data_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+        symbol_path = os.path.join(DATA_DIR, 'hwb', 'symbols', f"{symbol.upper()}.json")
+        if not os.path.exists(symbol_path):
+            raise HTTPException(status_code=404, detail=f"Data for symbol '{symbol}' not found.")
 
-            return {
-                "has_data": True,
-                "last_scan": last_scan,
-                "total_scanned": data.get('total_scanned', 0),
-                "signals_count": len(data.get('signals', [])),
-                "candidates_count": len(data.get('candidates', []))
-            }
-        else:
-            return {
-                "has_data": False,
-                "message": "データがありません。スキャンを実行してください。"
-            }
-
+        with open(symbol_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error reading data for symbol '{symbol}': {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Could not retrieve data for symbol '{symbol}'.")
 
 @app.get("/api/hwb/analyze_ticker")
 async def analyze_ticker(ticker: str, current_user: str = Depends(get_current_user)):
