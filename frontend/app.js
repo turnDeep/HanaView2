@@ -319,9 +319,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 this.summaryData = await response.json();
                 this.render();
 
-                const { scan_date, summary } = this.summaryData;
+                const { updated_at, summary } = this.summaryData;
+                const displayDate = updated_at ? formatDateForDisplay(updated_at) : this.summaryData.scan_date;
                 this.showStatus(
-                    `最終スキャン: ${scan_date} | シグナル: ${summary.signals_count} | 候補: ${summary.candidates_count}`,
+                    `最終更新: ${displayDate} | シグナル: ${summary.signals_count} | 候補: ${summary.candidates_count}`,
                     'info'
                 );
 
@@ -341,13 +342,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         renderSummary(container) {
-            const { scan_date, scan_time, total_scanned, summary } = this.summaryData;
+            const { updated_at, scan_date, scan_time, total_scanned, summary } = this.summaryData;
             const summaryDiv = document.createElement('div');
             summaryDiv.className = 'hwb-summary';
+            const displayDate = updated_at ? formatDateForDisplay(updated_at) : `${scan_date} ${scan_time}`;
+
             summaryDiv.innerHTML = `
                 <h2>🤖 AI判定システム - HWB Strategy</h2>
                 <div class="scan-info">
-                    スキャン日時: ${scan_date} ${scan_time} | 処理銘柄: ${total_scanned}
+                    データ更新: ${displayDate} | 処理銘柄: ${total_scanned}
                 </div>
                 <div class="hwb-summary-grid">
                     <div>

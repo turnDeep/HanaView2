@@ -2,6 +2,7 @@
 import os
 import json
 import re
+import traceback
 from datetime import datetime, timedelta, timezone
 from fastapi import Depends, FastAPI, HTTPException, Header, status, Response, Request, Cookie
 from fastapi.staticfiles import StaticFiles
@@ -200,7 +201,9 @@ def get_market_data(current_user: str = Depends(get_current_user)):
             data = json.load(f)
         return data
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Error reading latest market data:")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Could not retrieve market data.")
 
 @app.get("/api/vapid-public-key")
 def get_vapid_public_key():
@@ -308,10 +311,20 @@ def get_hwb_latest_summary(current_user: str = Depends(get_current_user)):
         if not os.path.exists(summary_path):
             raise HTTPException(status_code=404, detail="Latest summary not found. Please run a scan.")
 
+        # Get file modification time
+        mtime = os.path.getmtime(summary_path)
+        updated_at = datetime.fromtimestamp(mtime, timezone.utc).isoformat()
+
         with open(summary_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
+            data = json.load(f)
+
+        # Add the update timestamp to the response
+        data['updated_at'] = updated_at
+
+        return data
     except Exception as e:
-        logger.error(f"Error reading latest HWB summary: {e}", exc_info=True)
+        print(f"Error reading latest HWB summary:")
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail="Could not retrieve HWB summary.")
 
 @app.get("/api/hwb/symbols/{symbol}")
@@ -331,7 +344,8 @@ def get_hwb_symbol_data(symbol: str, current_user: str = Depends(get_current_use
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error reading data for symbol '{symbol}': {e}", exc_info=True)
+        print(f"Error reading data for symbol '{symbol}':")
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Could not retrieve data for symbol '{symbol}'.")
 
 @app.get("/api/hwb/analyze_ticker")
