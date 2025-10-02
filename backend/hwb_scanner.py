@@ -817,7 +817,7 @@ class HWBScanner:
                         }
                         markers.append({
                             "time": middle_candle_date.strftime('%Y-%m-%d'),
-                            "position": "aboveBar",
+                            "position": "inBar",
                             "color": color_map.get(fvg.get('status'), '#FFD700'),
                             "shape": "circle",
                             "text": "🐮"
