@@ -470,13 +470,16 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         renderLists(container) {
-            const { signals = [], candidates = [] } = this.summaryData.summary;
+            const { signals = [] } = this.summaryData.summary;
+            const { daily_candidates = [] } = this.summaryData;
 
             if (signals.length > 0) {
                 this.renderSection(container, '🚀 当日シグナル', signals, 'signal');
             }
-            if (candidates.length > 0) {
-                this.renderSection(container, '📍 監視銘柄', candidates, 'candidate');
+
+            // 「監視銘柄」は「当日監視銘柄」に名称変更し、daily_candidates を使用する
+            if (daily_candidates.length > 0) {
+                this.renderSection(container, '📍 当日監視銘柄', daily_candidates, 'candidate');
             }
         }
 
@@ -693,20 +696,18 @@ renderLightweightChart(container, chartData, width, height) {
             // 詳細情報セクションを追加
             const infoSection = document.createElement('div');
             infoSection.className = 'hwb-analysis-info';
+
+            const signalDates = (symbolData.signals || [])
+                .map(s => s.signal_date)
+                .filter(Boolean)
+                .join(', ');
+
             infoSection.innerHTML = `
                 <h3>${symbolData.symbol} の分析結果</h3>
                 <div class="analysis-stats">
                     <div class="stat-item">
-                        <span class="stat-label">セットアップ:</span>
-                        <span class="stat-value">${symbolData.setups?.length || 0}件</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">FVG:</span>
-                        <span class="stat-value">${symbolData.fvgs?.length || 0}件</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">シグナル:</span>
-                        <span class="stat-value signal">${symbolData.signals?.length || 0}件</span>
+                        <span class="stat-label">シグナル発生日:</span>
+                        <span class="stat-value signal">${signalDates || 'なし'}</span>
                     </div>
                 </div>
                 <p class="last-updated">最終スキャン: ${symbolData.last_scan || 'N/A'}</p>

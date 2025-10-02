@@ -792,6 +792,14 @@ body {
     box-shadow: 0 2px 8px var(--shadow-color);
 }
 
+.hwb-ticker-input {
+    padding: 10px;
+    font-size: 1em;
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+    width: 300px; /* Increased from default */
+}
+
 .hwb-action-btn {
     padding: 10px 20px;
     background-color: var(--tab-active-bg);
