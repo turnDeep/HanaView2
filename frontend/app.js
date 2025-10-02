@@ -425,7 +425,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const { updated_at, summary } = this.summaryData;
                 const displayDate = updated_at ? formatDateForDisplay(updated_at) : this.summaryData.scan_date;
                 this.showStatus(
-                    `最終更新: ${displayDate} | シグナル: ${summary.signals_count} | 候補: ${summary.candidates_count}`,
+                    `最終更新: ${displayDate} | シグナル: ${summary.signals_count} | 監視銘柄: ${summary.candidates_count}`,
                     'info'
                 );
 
@@ -461,7 +461,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         <p class="summary-count">${summary.signals_count}</p>
                     </div>
                     <div>
-                        <h3>📍 監視候補</h3>
+                        <h3>📍 監視銘柄</h3>
                         <p class="summary-count">${summary.candidates_count}</p>
                     </div>
                 </div>
@@ -476,7 +476,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 this.renderSection(container, '🚀 当日シグナル', signals, 'signal');
             }
             if (candidates.length > 0) {
-                this.renderSection(container, '📍 監視候補', candidates, 'candidate');
+                this.renderSection(container, '📍 監視銘柄', candidates, 'candidate');
             }
         }
 
