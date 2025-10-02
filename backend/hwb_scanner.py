@@ -233,7 +233,7 @@ class HWBAnalyzer:
         # FVG違反チェック（FVG形成後に下限を大きく割り込んだら無効）
         post_fvg_data = df_daily.iloc[fvg_idx:]
         if post_fvg_data['low'].min() < fvg['lower_bound'] * 0.98:
-            return {'status': 'violated', 'violated_date': df_daily.index[post_fvg_data['low'].idxmin()]}
+            return {'status': 'violated', 'violated_date': post_fvg_data['low'].idxmin()}
 
         # 🔥 重要: FVG形成日から現在まで、各日でブレイクアウトをチェック
         vol_ma = df_daily['volume'].rolling(20).mean()
