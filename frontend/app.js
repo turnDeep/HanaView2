@@ -604,35 +604,17 @@ renderLightweightChart(container, chartData, width, height) {
     });
     weeklySma200.setData(chartData.weekly_sma200);
 
-    // ゾーン描画（Primitiveを使用する場合）
-    if (chartData.zones && chartData.zones.length > 0) {
-        const auxiliarySeries = chart.addSeries(LightweightCharts.LineSeries, {
-            visible: false,
-            priceLineVisible: false
+    // 出来高チャート追加
+    if (chartData.volume && chartData.volume.length > 0) {
+        const volumeSeries = chart.addSeries(LightweightCharts.HistogramSeries, {
+            priceFormat: { type: 'volume' },
+            priceScaleId: '',
+            scaleMargins: { top: 0.8, bottom: 0 },
         });
-
-        chartData.zones.forEach(zone => {
-            const p1 = {
-                time: new Date(zone.startTime).getTime() / 1000,
-                price: zone.topValue
-            };
-            const p2 = {
-                time: new Date(zone.endTime).getTime() / 1000,
-                price: zone.bottomValue
-            };
-
-            const rectPrimitive = new RectanglePrimitive({
-                points: [p1, p2],
-                fillColor: zone.fillColor,
-                borderColor: zone.borderColor,
-                borderWidth: 1.5
-            });
-
-            auxiliarySeries.attachPrimitive(rectPrimitive);
-        });
+        volumeSeries.setData(chartData.volume);
     }
 
-    // マーカー
+    // マーカー（FVGは🐮、ブレイクアウトはマゼンタで"Break"）
     if (chartData.markers && chartData.markers.length > 0) {
         LightweightCharts.createSeriesMarkers(candleSeries, chartData.markers);
     }
