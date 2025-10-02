@@ -547,8 +547,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 chartContainer.className = 'hwb-chart-container';
                 card.appendChild(chartContainer);
 
-                // In the next step, this will call the lightweight-charts rendering function
-                this.renderLightweightChart(chartContainer, symbolData.chart_data);
+                // Pass the entire symbolData object to the rendering function
+                this.renderLightweightChart(chartContainer, symbolData);
 
                 card.dataset.chartLoaded = 'true';
 
@@ -559,7 +559,10 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-renderLightweightChart(container, chartData, width, height) {
+renderLightweightChart(container, symbolData, width, height) {
+    const chartData = symbolData.chart_data;
+    const isAnalysisChart = !!(width && height); // 詳細分析チャートかどうか
+
     if (!container || !chartData || !chartData.candles || chartData.candles.length === 0) {
         container.innerHTML = '<p>Chart data is not available.</p>';
         return;
@@ -583,33 +586,12 @@ renderLightweightChart(container, chartData, width, height) {
     });
     candleSeries.setData(chartData.candles);
 
-    const sma200 = chart.addSeries(LightweightCharts.LineSeries, {
-        color: '#9370DB',
-        lineWidth: 2,
-        title: 'SMA200'
-    });
-    sma200.setData(chartData.sma200);
-
-    const ema200 = chart.addSeries(LightweightCharts.LineSeries, {
-        color: '#800080',
-        lineWidth: 2,
-        title: 'EMA200'
-    });
-    ema200.setData(chartData.ema200);
-
-    const weeklySma200 = chart.addSeries(LightweightCharts.LineSeries, {
-        color: '#0000FF',
-        lineWidth: 3,
-        title: 'Weekly SMA200'
-    });
-    weeklySma200.setData(chartData.weekly_sma200);
-
     // 出来高チャート追加
     if (chartData.volume && chartData.volume.length > 0) {
         const volumeSeries = chart.addSeries(LightweightCharts.HistogramSeries, {
             priceFormat: { type: 'volume' },
-            priceScaleId: '',
-            scaleMargins: { top: 0.8, bottom: 0 },
+            priceScaleId: '', // Separate pane
+            scaleMargins: { top: 0.7, bottom: 0.1 }, // Reduce top margin to make it less "floating"
         });
         volumeSeries.setData(chartData.volume);
     }
@@ -619,7 +601,30 @@ renderLightweightChart(container, chartData, width, height) {
         LightweightCharts.createSeriesMarkers(candleSeries, chartData.markers);
     }
 
-    chart.timeScale().fitContent();
+    // シグナルがある場合、最新シグナルにズーム
+    if (symbolData.signals && symbolData.signals.length > 0) {
+        // 'YYYY-MM-DD' 形式の日付をソートして最新のものを取得
+        const latestSignal = symbolData.signals.sort((a, b) => new Date(b.signal_date) - new Date(a.signal_date))[0];
+        const signalDate = new Date(latestSignal.signal_date);
+
+        // タイムゾーンオフセットを考慮
+        const userTimezoneOffset = signalDate.getTimezoneOffset() * 60000;
+        const signalTimeUTC = signalDate.getTime() + userTimezoneOffset;
+
+        // 3ヶ月前から3ヶ月後を計算
+        const fromDate = new Date(signalTimeUTC);
+        fromDate.setMonth(fromDate.getMonth() - 3);
+        const toDate = new Date(signalTimeUTC);
+        toDate.setMonth(toDate.getMonth() + 3);
+
+        // lightweight-chartsは'YYYY-MM-DD'形式の文字列を期待
+        const from = fromDate.toISOString().split('T')[0];
+        const to = toDate.toISOString().split('T')[0];
+
+        chart.timeScale().setVisibleRange({ from, to });
+    } else {
+        chart.timeScale().fitContent();
+    }
 
     new ResizeObserver(entries => {
         if (entries.length > 0 && entries[0].contentRect.width > 0) {
@@ -719,7 +724,7 @@ renderLightweightChart(container, chartData, width, height) {
             container.appendChild(chartDiv);
 
             // チャートを描画
-            this.renderLightweightChart(chartDiv, symbolData.chart_data, 900, 600);
+            this.renderLightweightChart(chartDiv, symbolData, 900, 600);
         }
     }
 
