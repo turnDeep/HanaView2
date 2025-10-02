@@ -845,10 +845,27 @@ class HWBScanner:
         }
 
     def _create_daily_summary(self, results: List[Dict], total_scanned: int, start_time: datetime) -> Dict:
-        """日次サマリー作成"""
+        """日次サマリー作成（重複排除機能付き）"""
         end_time = datetime.now()
-        signals = sorted([r for r in results if r['signal_type'] == 'signal'], key=lambda x: x['score'], reverse=True)
-        candidates = sorted([r for r in results if r['signal_type'] == 'candidate'], key=lambda x: x['score'], reverse=True)
+
+        def _merge_and_sort(items: List[Dict], date_key: str) -> List[Dict]:
+            """同じシンボル・日付の項目をマージし、スコアでソートする"""
+            merged = {}
+            for item in items:
+                if date_key not in item or 'symbol' not in item:
+                    continue
+
+                key = (item['symbol'], item[date_key])
+                if key not in merged or item['score'] > merged[key]['score']:
+                    merged[key] = item
+
+            return sorted(list(merged.values()), key=lambda x: x['score'], reverse=True)
+
+        all_signals = [r for r in results if r.get('signal_type') == 'signal']
+        all_candidates = [r for r in results if r.get('signal_type') == 'candidate']
+
+        unique_signals = _merge_and_sort(all_signals, 'signal_date')
+        unique_candidates = _merge_and_sort(all_candidates, 'fvg_date')
         
         return {
             "scan_date": end_time.strftime('%Y-%m-%d'),
@@ -856,10 +873,10 @@ class HWBScanner:
             "scan_duration_seconds": (end_time - start_time).total_seconds(),
             "total_scanned": total_scanned,
             "summary": {
-                "signals_count": len(signals),
-                "candidates_count": len(candidates),
-                "signals": signals,
-                "candidates": candidates
+                "signals_count": len(unique_signals),
+                "candidates_count": len(unique_candidates),
+                "signals": unique_signals,
+                "candidates": unique_candidates
             },
             "performance": {
                 "avg_time_per_symbol_ms": ((end_time - start_time).total_seconds() / total_scanned * 1000) if total_scanned > 0 else 0
