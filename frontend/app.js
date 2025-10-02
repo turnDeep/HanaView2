@@ -451,7 +451,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const displayDate = updated_at ? formatDateForDisplay(updated_at) : `${scan_date} ${scan_time}`;
 
             summaryDiv.innerHTML = `
-                <h2>200🐮システム</h2>
+                <h2>200MAシステム</h2>
                 <div class="scan-info">
                     データ更新: ${displayDate} | 処理銘柄: ${total_scanned}
                 </div>
