@@ -305,10 +305,11 @@ document.addEventListener('DOMContentLoaded', () => {
                         return;
                     }
 
-                    const card = e.target.closest('.hwb-chart-card');
-                    if (card && !card.dataset.chartLoaded) {
-                        this.loadSymbolChart(card);
-                    }
+                    // This logic is now handled automatically on render.
+                    // const card = e.target.closest('.hwb-chart-card');
+                    // if (card && !card.dataset.chartLoaded) {
+                    //     this.loadSymbolChart(card);
+                    // }
                 });
             }
         }
@@ -479,7 +480,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        renderSection(container, title, items, type) {
+        async renderSection(container, title, items, type) {
             const section = document.createElement('div');
             section.className = 'hwb-charts-section';
             section.innerHTML = `<h2>${title}</h2>`;
@@ -487,13 +488,19 @@ document.addEventListener('DOMContentLoaded', () => {
             const grid = document.createElement('div');
             grid.className = 'hwb-chart-grid';
 
-            items.forEach(item => {
+            const cards = items.map(item => {
                 const card = this.createPlaceholderCard(item, type);
                 grid.appendChild(card);
+                return card;
             });
 
             section.appendChild(grid);
             container.appendChild(section);
+
+            // Load charts sequentially
+            for (const card of cards) {
+                await this.loadSymbolChart(card);
+            }
         }
 
         createPlaceholderCard(item, type) {
@@ -515,7 +522,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
                 <div class="hwb-chart-placeholder">
                     <div class="loading-spinner-small"></div>
-                    <p>クリックしてチャートを読込</p>
+                    <p>チャートを読込中...</p>
                 </div>
             `;
             return card;

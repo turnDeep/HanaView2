@@ -8,7 +8,7 @@ import pandas as pd
 import numpy as np
 import uuid
 from dotenv import load_dotenv
-from hwb_data_manager import HWBDataManager
+from .hwb_data_manager import HWBDataManager
 import logging
 import warnings
 
