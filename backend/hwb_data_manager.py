@@ -3,7 +3,8 @@ import sqlite3
 import os
 from pathlib import Path
 import pandas as pd
-from datetime import datetime, timedelta
+import numpy as np
+from datetime import datetime, timedelta, date
 import logging
 import yfinance as yf
 from curl_cffi import requests
@@ -12,6 +13,23 @@ from io import StringIO
 from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
+
+class CustomJSONEncoder(json.JSONEncoder):
+    """
+    Custom JSON encoder to handle special types like numpy and pandas objects.
+    """
+    def default(self, obj):
+        if isinstance(obj, (datetime, date, pd.Timestamp)):
+            return obj.isoformat()
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, np.bool_):
+            return bool(obj)
+        return super(CustomJSONEncoder, self).default(obj)
 
 class HWBDataManager:
     """
@@ -309,7 +327,7 @@ class HWBDataManager:
         try:
             filepath = self.symbols_dir / f"{symbol}.json"
             with open(filepath, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
+                json.dump(data, f, indent=2, ensure_ascii=False, cls=CustomJSONEncoder)
             logger.info(f"Saved analysis for '{symbol}' to {filepath}")
         except Exception as e:
             logger.error(f"Failed to save symbol data for '{symbol}': {e}", exc_info=True)
@@ -336,14 +354,14 @@ class HWBDataManager:
             # Save the date-specific summary
             date_filepath = self.daily_dir / f"{scan_date}.json"
             with open(date_filepath, 'w', encoding='utf-8') as f:
-                json.dump(summary_data, f, indent=2, ensure_ascii=False)
+                json.dump(summary_data, f, indent=2, ensure_ascii=False, cls=CustomJSONEncoder)
             logger.info(f"Saved daily summary to {date_filepath}")
 
             # Update the 'latest.json' file
             latest_filepath = self.daily_dir / "latest.json"
             # Use a simple copy for compatibility across systems instead of symlink
             with open(latest_filepath, 'w', encoding='utf-8') as f:
-                json.dump(summary_data, f, indent=2, ensure_ascii=False)
+                json.dump(summary_data, f, indent=2, ensure_ascii=False, cls=CustomJSONEncoder)
             logger.info(f"Updated latest summary at {latest_filepath}")
 
         except Exception as e:
