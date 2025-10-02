@@ -66,29 +66,21 @@ class HWBAnalyzer:
         return params.get(self.market_regime, params['TRENDING'])
 
     def optimized_rule1(self, df_daily: pd.DataFrame, df_weekly: pd.DataFrame) -> bool:
-        """Optimized Rule ①: Dynamic Trend Strength Evaluation."""
+        """Optimized Rule ①: Dynamic Trend Strength Evaluation. Daily check removed as per user request."""
         if df_daily is None or df_daily.empty or df_weekly is None or df_weekly.empty: return False
         if 'sma200' not in df_weekly.columns or df_weekly['sma200'].isna().all(): return False
 
-        weekly_trend_score = 0
         latest_weekly = df_weekly.iloc[-1]
+
+        # Check for NaN or zero sma200 to avoid errors
+        if pd.isna(latest_weekly['sma200']) or latest_weekly['sma200'] == 0:
+            return False
+
         weekly_deviation = (latest_weekly['close'] - latest_weekly['sma200']) / latest_weekly['sma200']
 
-        if weekly_deviation > 0.20: weekly_trend_score = 3
-        elif weekly_deviation > 0.10: weekly_trend_score = 2
-        elif weekly_deviation >= WEEKLY_TREND_THRESHOLD: weekly_trend_score = 1
-        else: return False
-
-        if weekly_trend_score >= 2 and ENABLE_DYNAMIC_TREND_FILTER:
-            return True
-
-        latest_daily = df_daily.iloc[-1]
-        daily_sma200 = latest_daily.get('sma200')
-        daily_ema200 = latest_daily.get('ema200')
-        daily_close = latest_daily['close']
-
-        return (daily_sma200 is not None and daily_close > daily_sma200 * (1 - DAILY_MA_TOLERANCE)) or \
-               (daily_ema200 is not None and daily_close > daily_ema200 * (1 - DAILY_MA_TOLERANCE))
+        # The rule now only depends on the weekly trend deviation.
+        # Any positive deviation (or within threshold) passes the trend filter.
+        return weekly_deviation >= WEEKLY_TREND_THRESHOLD
 
     def optimized_rule2_setups(self, df_daily: pd.DataFrame) -> List[Dict]:
         """Optimized Rule ②: Multi-layered Setup Detection System."""
