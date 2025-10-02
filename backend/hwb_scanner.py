@@ -784,40 +784,55 @@ class HWBScanner:
             "close": r.close
         } for i, r in df_plot.iterrows()]
 
-        # FVGゾーン
-        zones = []
-        color_map = {
-            'active': 'rgba(0, 200, 83, 0.2)',
-            'consumed': 'rgba(41, 98, 255, 0.2)',
-            'violated': 'rgba(255, 82, 82, 0.2)'
-        }
-        for fvg in symbol_data.get('fvgs', []):
-            fill_color = color_map.get(fvg.get('status'), 'rgba(128, 128, 128, 0.2)')
-            zones.append({
-                "startTime": fvg['formation_date'],
-                "endTime": datetime.now().strftime('%Y-%m-%d'),
-                "topValue": fvg['upper_bound'],
-                "bottomValue": fvg['lower_bound'],
-                "fillColor": fill_color
+        # 出来高データ
+        volume_data = []
+        for i, r in df_plot.iterrows():
+            color = '#26a69a' if r['close'] >= r['open'] else '#ef5350'
+            volume_data.append({
+                "time": i.strftime('%Y-%m-%d'),
+                "value": r['volume'],
+                "color": color
             })
 
-        # マーカー
+        # マーカー: FVGは🐮（真ん中のローソク足の上に）
         markers = []
-        for s in symbol_data.get('setups', []):
-            markers.append({
-                "time": s['date'],
-                "position": "aboveBar",
-                "color": "#FFD700" if s['type'] == 'PRIMARY' else '#F0E68C',
-                "shape": "circle",
-                "text": "S"
-            })
+
+        # FVGマーカー（真ん中のローソク足 = formation_date の1つ前のインデックス）
+        for fvg in symbol_data.get('fvgs', []):
+            try:
+                formation_date = pd.to_datetime(fvg['formation_date'])
+
+                # formation_dateのインデックスを取得
+                if formation_date in df_plot.index:
+                    formation_idx = df_plot.index.get_loc(formation_date)
+
+                    # 真ん中のローソク足は1つ前のインデックス
+                    if formation_idx >= 1:
+                        middle_candle_date = df_plot.index[formation_idx - 1]
+
+                        color_map = {
+                            'active': '#FFD700',      # ゴールド
+                            'consumed': '#9370DB',    # 紫
+                            'violated': '#808080'     # グレー
+                        }
+                        markers.append({
+                            "time": middle_candle_date.strftime('%Y-%m-%d'),
+                            "position": "aboveBar",
+                            "color": color_map.get(fvg.get('status'), '#FFD700'),
+                            "shape": "circle",
+                            "text": "🐮"
+                        })
+            except Exception as e:
+                logger.warning(f"FVGマーカー生成エラー: {symbol_data.get('symbol', 'N/A')} - {e}")
+
+        # シグナルマーカー（マゼンタで"Break"）
         for s in symbol_data.get('signals', []):
             markers.append({
                 "time": s['breakout_date'],
                 "position": "belowBar",
-                "color": "#2962FF",
+                "color": "#FF00FF",  # マゼンタ
                 "shape": "arrowUp",
-                "text": f"B @{s['breakout_price']:.2f}"
+                "text": "Break"
             })
 
         return {
@@ -825,7 +840,7 @@ class HWBScanner:
             'sma200': format_series(df_plot, 'sma200'),
             'ema200': format_series(df_plot, 'ema200'),
             'weekly_sma200': format_series(df_plot, 'weekly_sma200_val'),
-            'zones': [clean_np_types(z) for z in zones],
+            'volume': [clean_np_types(v) for v in volume_data],
             'markers': [clean_np_types(m) for m in markers]
         }
 
