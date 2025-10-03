@@ -25,6 +25,7 @@ WEEKLY_TREND_THRESHOLD = float(os.getenv('WEEKLY_TREND_THRESHOLD', '0.0'))
 
 # Rule 2: Setup
 SETUP_LOOKBACK_DAYS = int(os.getenv('SETUP_LOOKBACK_DAYS', '30'))
+INITIAL_SCAN_MIN_HISTORY_DAYS = int(os.getenv('INITIAL_SCAN_MIN_HISTORY_DAYS', '1000'))  # 初回スキャン開始位置（週足200MA計算に約1000営業日必要）
 
 # Rule 3: FVG Detection
 FVG_MIN_GAP_PERCENTAGE = float(os.getenv('FVG_MIN_GAP_PERCENTAGE', '0.001'))
@@ -36,7 +37,7 @@ MIN_BREAKOUT_SCORE = int(os.getenv('MIN_BREAKOUT_SCORE', '5'))
 
 
 class HWBAnalyzer:
-    """HWB分析エンジン（状態管理改善版）"""
+    """HWB分析エンジン（時系列週足フィルター対応版）"""
     
     def __init__(self):
         self.market_regime = 'TRENDING'
@@ -55,7 +56,7 @@ class HWBAnalyzer:
         return params.get(self.market_regime, params['TRENDING'])
 
     def optimized_rule1(self, df_daily: pd.DataFrame, df_weekly: pd.DataFrame) -> bool:
-        """Rule ①: 週足トレンドフィルター"""
+        """Rule ①: 週足トレンドフィルター（現時点チェック用）"""
         if df_weekly is None or df_weekly.empty:
             return False
         if 'sma200' not in df_weekly.columns or df_weekly['sma200'].isna().all():
@@ -68,20 +69,96 @@ class HWBAnalyzer:
         weekly_deviation = (latest_weekly['close'] - latest_weekly['sma200']) / latest_weekly['sma200']
         return weekly_deviation >= WEEKLY_TREND_THRESHOLD
 
-    def optimized_rule2_setups(self, df_daily: pd.DataFrame) -> List[Dict]:
-        """Rule ②: セットアップ検出（ID付与版）"""
+    def check_weekly_trend_at_date(self, df_weekly: pd.DataFrame, check_date: pd.Timestamp) -> bool:
+        """
+        🔥 重要な修正：特定日時点での週足トレンドフィルター
+        
+        過去のセットアップを検証する際、「その時点」で週足200MA以上だったかをチェック
+        
+        Args:
+            df_weekly: 週足データフレーム
+            check_date: チェックする日付（セットアップ日など）
+        
+        Returns:
+            その日時点で週足200MA以上ならTrue
+        """
+        if df_weekly is None or df_weekly.empty:
+            return False
+        
+        # check_date以前の週足データのみを使用（未来のデータを見ない）
+        df_weekly_historical = df_weekly[df_weekly.index <= check_date]
+        
+        if df_weekly_historical.empty:
+            return False
+        
+        if 'sma200' not in df_weekly_historical.columns or df_weekly_historical['sma200'].isna().all():
+            return False
+        
+        # その時点での最新週足データ
+        latest_weekly_at_date = df_weekly_historical.iloc[-1]
+        
+        if pd.isna(latest_weekly_at_date['sma200']) or latest_weekly_at_date['sma200'] == 0:
+            return False
+        
+        weekly_deviation = (
+            (latest_weekly_at_date['close'] - latest_weekly_at_date['sma200']) 
+            / latest_weekly_at_date['sma200']
+        )
+        
+        return weekly_deviation >= WEEKLY_TREND_THRESHOLD
+
+    def optimized_rule2_setups(
+        self, 
+        df_daily: pd.DataFrame, 
+        df_weekly: pd.DataFrame,
+        full_scan: bool = False,
+        scan_start_date: Optional[pd.Timestamp] = None
+    ) -> List[Dict]:
+        """
+        Rule ②: セットアップ検出（週足フィルター統合＋全期間対応版）
+        
+        重要な修正:
+        1. full_scan=True時は全期間（200日目以降）をスキャン
+        2. 各セットアップ候補で、その日時点の週足フィルターをチェック
+        3. scan_start_dateが指定されている場合、その日以降のみスキャン
+        
+        Args:
+            df_daily: 日足データ
+            df_weekly: 週足データ
+            full_scan: 初回分析時はTrue（全期間スキャン）
+            scan_start_date: 開始日（差分分析時に使用）
+        """
         setups = []
-        lookback_days = self.params['setup_lookback']
-        if len(df_daily) < lookback_days:
+        
+        # スキャン範囲の決定
+        if full_scan:
+            # 🔥 初回分析時：200MA計算に必要な最小期間から全期間スキャン
+            scan_start_index = max(0, INITIAL_SCAN_MIN_HISTORY_DAYS)
+            logger.info(f"セットアップ検出：全期間スキャン（{scan_start_index}日目〜{len(df_daily)}日目）")
+        elif scan_start_date:
+            # 差分分析時：指定日以降
+            try:
+                scan_start_index = df_daily.index.searchsorted(scan_start_date)
+            except:
+                scan_start_index = max(0, len(df_daily) - SETUP_LOOKBACK_DAYS)
+        else:
+            # デフォルト：最近N日
+            scan_start_index = max(0, len(df_daily) - SETUP_LOOKBACK_DAYS)
+        
+        if scan_start_index >= len(df_daily):
             return setups
-
-        # ATR計算
+        
+        # ATR計算（全期間）
         atr = (df_daily['high'] - df_daily['low']).rolling(14).mean()
-
-        scan_start_index = max(0, len(df_daily) - lookback_days)
         
         for i in range(scan_start_index, len(df_daily)):
             row = df_daily.iloc[i]
+            setup_date = df_daily.index[i]
+            
+            # 🔥 重要：この日付時点で週足200MAフィルターをチェック
+            if not self.check_weekly_trend_at_date(df_weekly, setup_date):
+                continue
+            
             if pd.isna(row.get('sma200')) or pd.isna(row.get('ema200')):
                 continue
 
@@ -96,11 +173,12 @@ class HWBAnalyzer:
             # セットアップ判定
             if zone_lower <= row['open'] <= zone_upper and zone_lower <= row['close'] <= zone_upper:
                 setup = {
-                    'id': str(uuid.uuid4()),  # ユニークID付与
-                    'date': df_daily.index[i],
+                    'id': str(uuid.uuid4()),
+                    'date': setup_date,
                     'type': 'PRIMARY',
                     'confidence': 0.85,
-                    'status': 'active'  # 初期状態
+                    'status': 'active',
+                    'weekly_deviation': self._get_weekly_deviation_at_date(df_weekly, setup_date)  # 記録
                 }
                 setups.append(setup)
             elif (zone_lower <= row['open'] <= zone_upper) or (zone_lower <= row['close'] <= zone_upper):
@@ -108,14 +186,31 @@ class HWBAnalyzer:
                 if zone_lower <= body_center <= zone_upper:
                     setup = {
                         'id': str(uuid.uuid4()),
-                        'date': df_daily.index[i],
+                        'date': setup_date,
                         'type': 'SECONDARY',
                         'confidence': 0.65,
-                        'status': 'active'
+                        'status': 'active',
+                        'weekly_deviation': self._get_weekly_deviation_at_date(df_weekly, setup_date)
                     }
                     setups.append(setup)
         
+        logger.info(f"セットアップ検出完了：{len(setups)}件")
         return setups
+
+    def _get_weekly_deviation_at_date(self, df_weekly: pd.DataFrame, check_date: pd.Timestamp) -> Optional[float]:
+        """指定日時点での週足200MAからの乖離率を取得（記録用）"""
+        try:
+            df_weekly_historical = df_weekly[df_weekly.index <= check_date]
+            if df_weekly_historical.empty:
+                return None
+            
+            latest = df_weekly_historical.iloc[-1]
+            if pd.isna(latest['sma200']) or latest['sma200'] == 0:
+                return None
+            
+            return (latest['close'] - latest['sma200']) / latest['sma200']
+        except:
+            return None
 
     def optimized_fvg_detection(self, df_daily: pd.DataFrame, setup: Dict) -> List[Dict]:
         """Rule ③: FVG検出（setup_id紐付け版）"""
@@ -178,8 +273,8 @@ class HWBAnalyzer:
 
             if fvg_score >= MIN_FVG_SCORE:
                 fvg = {
-                    'id': str(uuid.uuid4()),  # FVGにもID付与
-                    'setup_id': setup['id'],  # セットアップと紐付け
+                    'id': str(uuid.uuid4()),
+                    'setup_id': setup['id'],
                     'formation_date': df_daily.index[i],
                     'gap_percentage': gap_percentage,
                     'score': fvg_score,
@@ -188,7 +283,7 @@ class HWBAnalyzer:
                     'quality': 'HIGH' if fvg_score >= 6 else 'MEDIUM' if fvg_score >= 4 else 'LOW',
                     'lower_bound': candle_1['high'],
                     'upper_bound': candle_3['low'],
-                    'status': 'active'  # 初期状態
+                    'status': 'active'
                 }
                 fvgs.append(fvg)
         
@@ -200,20 +295,14 @@ class HWBAnalyzer:
         setup: Dict, 
         fvg: Dict
     ) -> Optional[Dict]:
-        """
-        Rule ④: ブレイクアウト検出（全期間スキャン版）
-        
-        重要な変更点:
-        - FVG形成日から現在まで「全ての日」をチェック
-        - 最初にブレイクアウトした日を検出
-        """
+        """Rule ④: ブレイクアウト検出（全期間スキャン版）"""
         try:
             setup_idx = df_daily.index.get_loc(setup['date'])
             fvg_idx = df_daily.index.get_loc(fvg['formation_date'])
         except KeyError:
             return None
 
-        # レジスタンスレベル計算（セットアップ〜FVG形成まで）
+        # レジスタンスレベル計算
         lookback_window = min(20, fvg_idx - setup_idx)
         resistance_data = df_daily.iloc[max(0, fvg_idx - lookback_window) : fvg_idx]
         
@@ -230,12 +319,12 @@ class HWBAnalyzer:
         }
         main_resistance = np.median(list(resistance_levels.values()))
 
-        # FVG違反チェック（FVG形成後に下限を大きく割り込んだら無効）
+        # FVG違反チェック
         post_fvg_data = df_daily.iloc[fvg_idx:]
         if post_fvg_data['low'].min() < fvg['lower_bound'] * 0.98:
             return {'status': 'violated', 'violated_date': post_fvg_data['low'].idxmin()}
 
-        # 🔥 重要: FVG形成日から現在まで、各日でブレイクアウトをチェック
+        # ブレイクアウトチェック（FVG形成日から現在まで）
         vol_ma = df_daily['volume'].rolling(20).mean()
         
         for i in range(fvg_idx + 1, len(df_daily)):
@@ -243,7 +332,6 @@ class HWBAnalyzer:
             recent_volatility = df_daily['close'].pct_change().rolling(20).std().iloc[i]
             breakout_threshold = max(self.params['breakout_threshold'], min(0.01, recent_volatility * 3))
 
-            # ブレイクアウト条件
             cond_price = current['close'] > main_resistance * (1 + breakout_threshold)
             cond_volume = current['volume'] > vol_ma.iloc[i] * 1.2 if pd.notna(vol_ma.iloc[i]) else False
             cond_momentum = df_daily['close'].pct_change(5).iloc[i] > 0
@@ -257,19 +345,18 @@ class HWBAnalyzer:
             if breakout_score >= MIN_BREAKOUT_SCORE:
                 return {
                     'status': 'breakout',
-                    'breakout_date': df_daily.index[i],  # この日にブレイクアウト
+                    'breakout_date': df_daily.index[i],
                     'breakout_price': current['close'],
                     'resistance_price': main_resistance,
                     'breakout_score': breakout_score,
                     'confidence': 'HIGH' if breakout_score >= 7 else 'MEDIUM',
                 }
         
-        # ブレイクアウトなし
         return None
 
 
 class HWBScanner:
-    """メインスキャナー（状態管理版）"""
+    """メインスキャナー（全期間対応版）"""
     
     def __init__(self):
         self.data_manager = HWBDataManager()
@@ -310,18 +397,8 @@ class HWBScanner:
         return summary
 
     def _analyze_and_save_symbol(self, symbol: str) -> Optional[List[Dict]]:
-        """
-        単一銘柄分析（状態ベースの差分処理版）
-        
-        処理フロー:
-        1. 既存のJSONを読み込み、状態を確認
-        2. 状態に応じて必要な処理のみ実行
-           - active setup → FVG検出（新データのみ）
-           - active FVG → ブレイクアウト検出（新データのみ）
-           - consumed → 新セットアップ検出（最新日のみ）
-        """
+        """単一銘柄分析（状態ベース差分処理版）"""
         try:
-            # 価格データ取得
             data = self.data_manager.get_stock_data_with_cache(symbol)
             if not data:
                 return None
@@ -335,23 +412,18 @@ class HWBScanner:
             df_daily = df_daily[~df_daily.index.duplicated(keep='last')]
             df_weekly = df_weekly[~df_weekly.index.duplicated(keep='last')]
 
-            # Rule ①: トレンドフィルター
+            # Rule ①: 現時点のトレンドフィルター（初期チェック）
             if not self.analyzer.optimized_rule1(df_daily, df_weekly):
                 return None
 
-            # 既存のJSON読み込み（状態確認）
+            # 既存データ確認
             existing_data = self.data_manager.load_symbol_data(symbol)
             
             if existing_data:
-                # 📄 既存データあり → 差分処理
-                result = self._differential_analysis(
-                    symbol, df_daily, df_weekly, existing_data
-                )
+                result = self._differential_analysis(symbol, df_daily, df_weekly, existing_data)
             else:
-                # 🆕 新規銘柄 → フルスキャン
-                result = self._full_analysis(
-                    symbol, df_daily, df_weekly
-                )
+                # 🔥 初回分析は全期間スキャン
+                result = self._full_analysis(symbol, df_daily, df_weekly)
             
             return result
 
@@ -366,14 +438,7 @@ class HWBScanner:
         df_weekly: pd.DataFrame,
         existing_data: dict
     ) -> Optional[List[Dict]]:
-        """
-        差分分析: 既存の状態に基づいて必要な処理を並列実行
-        
-        重要な変更:
-        - FVGの有無に関わらず、activeなセットアップは継続的にFVGを探す
-        - 複数のFVGが同じセットアップから発生することを許容
-        """
-        # 既存データから状態を取得
+        """差分分析（週足フィルター対応版）"""
         existing_setups = existing_data.get('setups', [])
         existing_fvgs = existing_data.get('fvgs', [])
         existing_signals = existing_data.get('signals', [])
@@ -387,15 +452,12 @@ class HWBScanner:
             if 'breakout_date' in item:
                 item['breakout_date'] = pd.to_datetime(item['breakout_date'])
         
-        # アクティブな状態を確認
         active_setups = [s for s in existing_setups if s.get('status') == 'active']
         active_fvgs = [f for f in existing_fvgs if f.get('status') == 'active']
         
-        # 最新の既存データの日付を取得
         last_analyzed_date = pd.to_datetime(existing_data.get('last_updated', '2000-01-01')).date()
         latest_data_date = df_daily.index[-1].date()
         
-        # 新しいデータがない場合は終了
         if latest_data_date <= last_analyzed_date:
             logger.debug(f"{symbol}: 新しいデータなし")
             return self._create_summary_from_existing(existing_data)
@@ -405,29 +467,21 @@ class HWBScanner:
         updated = False
         new_fvgs_found = []
         
-        # 🔄 ステップ1: アクティブなセットアップから新しいFVGを探す
+        # アクティブセットアップからFVG探索
         if active_setups:
-            logger.info(f"{symbol}: FVG探索（{len(active_setups)}件のアクティブセットアップ）")
-            
             for setup in active_setups:
                 setup_date = setup['date']
                 setup_idx = df_daily.index.get_loc(setup_date)
                 
-                # このセットアップに紐づく既存FVGの最後の日付を取得
                 setup_fvgs = [f for f in existing_fvgs if f.get('setup_id') == setup['id']]
                 if setup_fvgs:
-                    # 既にFVGがある場合、最後のFVG形成日の次の日から探索
                     last_fvg_date = max(f['formation_date'] for f in setup_fvgs)
                     search_start_date = last_fvg_date + pd.Timedelta(days=1)
                     search_start = df_daily.index.searchsorted(search_start_date)
                 else:
-                    # FVGがまだない場合、セットアップ+2日目から
                     search_start = setup_idx + 2
                 
-                # セットアップから最大20日先まで
                 search_end = min(setup_idx + FVG_MAX_SEARCH_DAYS, len(df_daily) - 1)
-                
-                # 新しいデータの範囲に限定
                 new_data_start = df_daily.index.searchsorted(
                     pd.Timestamp(last_analyzed_date) + pd.Timedelta(days=1)
                 )
@@ -436,38 +490,24 @@ class HWBScanner:
                 if search_start >= search_end:
                     continue
                 
-                # 新しい範囲でFVG検出
-                new_fvgs = self._detect_fvg_in_range(
-                    df_daily, setup, search_start, search_end
-                )
+                new_fvgs = self._detect_fvg_in_range(df_daily, setup, search_start, search_end)
                 
                 if new_fvgs:
-                    logger.info(f"{symbol}: {len(new_fvgs)}件の新FVG検出（setup: {setup['id'][:8]}...）")
                     existing_data['fvgs'].extend(new_fvgs)
                     new_fvgs_found.extend(new_fvgs)
                     updated = True
         
-        # 🎯 ステップ2: 全てのアクティブFVG（既存+新規）のブレイクアウトをチェック
+        # ブレイクアウトチェック
         all_active_fvgs = active_fvgs + new_fvgs_found
         
         if all_active_fvgs:
-            logger.info(f"{symbol}: ブレイクアウトチェック（{len(all_active_fvgs)}件のアクティブFVG）")
-            
             for fvg in all_active_fvgs:
-                # 対応するセットアップを取得
                 setup = next((s for s in existing_setups if s['id'] == fvg['setup_id']), None)
-                if not setup:
+                if not setup or setup.get('status') == 'consumed':
                     continue
                 
-                # セットアップが既に消費済みならスキップ
-                if setup.get('status') == 'consumed':
-                    continue
-                
-                # FVG形成日以降の新しいデータのみチェック
                 fvg_date = fvg['formation_date']
                 fvg_idx = df_daily.index.get_loc(fvg_date)
-                
-                # 新しいデータの開始位置
                 new_data_start = df_daily.index.searchsorted(
                     pd.Timestamp(last_analyzed_date) + pd.Timedelta(days=1)
                 )
@@ -476,81 +516,47 @@ class HWBScanner:
                 if check_start >= len(df_daily):
                     continue
                 
-                # ブレイクアウトチェック
                 breakout = self._check_breakout_in_range(
                     df_daily, setup, fvg, check_start, len(df_daily)
                 )
                 
                 if breakout and breakout.get('status') == 'breakout':
-                    # 🎯 シグナル発生！
                     signal = {**fvg, **breakout}
                     signal['score'] = self._calculate_signal_score(signal)
                     existing_data['signals'].append(signal)
                     
-                    # 🔥 重要: このセットアップに関連する全てを消費
                     setup['status'] = 'consumed'
-                    
-                    # 同じsetup_idを持つ全てのFVGを消費
-                    consumed_count = 0
                     for related_fvg in existing_data['fvgs']:
                         if related_fvg.get('setup_id') == setup['id']:
                             related_fvg['status'] = 'consumed'
-                            consumed_count += 1
                     
                     updated = True
-                    
-                    logger.info(
-                        f"{symbol}: シグナル発生 @ {breakout['breakout_date']} "
-                        f"(setup: {setup['id'][:8]}..., FVG消費数: {consumed_count})"
-                    )
-                    
-                    # ✅ 1つのセットアップから1つのシグナルのみ
-                    # このセットアップに紐づく他のFVGの処理をスキップ
                     break
                 
                 elif breakout and breakout.get('status') == 'violated':
-                    # FVG違反
                     fvg['status'] = 'violated'
                     fvg['violated_date'] = breakout.get('violated_date')
                     updated = True
         
-        # 🆕 ステップ3: アクティブなセットアップもFVGもない場合、新しいセットアップを探す
+        # 新規セットアップ探索（週足フィルター対応）
         if not active_setups or all(s.get('status') == 'consumed' for s in existing_setups):
             logger.info(f"{symbol}: 新セットアップ探索")
             
-            # 最新の数日のみチェック
-            check_days = 5
-            recent_data = df_daily.tail(check_days)
+            new_start_date = pd.Timestamp(last_analyzed_date) + pd.Timedelta(days=1)
             
-            for i in range(len(recent_data)):
-                row = recent_data.iloc[i]
-                date = recent_data.index[i]
-                
-                if date.date() <= last_analyzed_date:
-                    continue
-                
-                if pd.isna(row.get('sma200')) or pd.isna(row.get('ema200')):
-                    continue
-                
-                # セットアップ判定
-                zone_width = abs(row['sma200'] - row['ema200'])
-                zone_upper = max(row['sma200'], row['ema200']) + zone_width * 0.2
-                zone_lower = min(row['sma200'], row['ema200']) - zone_width * 0.2
-                
-                if zone_lower <= row['open'] <= zone_upper and zone_lower <= row['close'] <= zone_upper:
-                    new_setup = {
-                        'id': str(uuid.uuid4()),
-                        'date': date,
-                        'type': 'PRIMARY',
-                        'confidence': 0.85,
-                        'status': 'active'
-                    }
-                    existing_data['setups'].append(new_setup)
-                    updated = True
-                    logger.info(f"{symbol}: 新セットアップ @ {date.date()}")
-                    break  # 1つ見つかったら終了
+            # 🔥 週足フィルター付きでセットアップ検出
+            new_setups = self.analyzer.optimized_rule2_setups(
+                df_daily, 
+                df_weekly,
+                full_scan=False,
+                scan_start_date=new_start_date
+            )
+            
+            if new_setups:
+                existing_data['setups'].extend(new_setups)
+                updated = True
+                logger.info(f"{symbol}: {len(new_setups)}件の新セットアップ")
         
-        # 📝 保存
         if updated:
             existing_data['last_updated'] = datetime.now().isoformat()
             self._save_symbol_data_with_chart(symbol, existing_data, df_daily, df_weekly)
@@ -563,12 +569,24 @@ class HWBScanner:
         df_daily: pd.DataFrame,
         df_weekly: pd.DataFrame
     ) -> Optional[List[Dict]]:
-        """新規銘柄のフルスキャン（従来の処理）"""
-        logger.info(f"{symbol}: フルスキャン（新規）")
+        """
+        🔥 初回フルスキャン（全期間対応版）
         
-        # Rule ②: セットアップ検出
-        setups = self.analyzer.optimized_rule2_setups(df_daily)
+        重要な変更:
+        - full_scan=True で全期間（6年分）をスキャン
+        - 各セットアップは週足フィルターを通過したもののみ
+        """
+        logger.info(f"{symbol}: 初回フルスキャン（全期間：{len(df_daily)}日分）")
+        
+        # Rule ②: セットアップ検出（全期間、週足フィルター統合）
+        setups = self.analyzer.optimized_rule2_setups(
+            df_daily, 
+            df_weekly, 
+            full_scan=True  # 🔥 全期間スキャン
+        )
+        
         if not setups:
+            logger.info(f"{symbol}: セットアップなし（全期間）")
             return None
 
         consumed_setups = set()
@@ -579,6 +597,7 @@ class HWBScanner:
         for s in setups:
             s['date'] = pd.to_datetime(s['date'])
 
+        # 各セットアップに対してFVG検出 → ブレイクアウト検出
         for setup in setups:
             if setup['id'] in consumed_setups:
                 setup['status'] = 'consumed'
@@ -622,6 +641,7 @@ class HWBScanner:
                 setup['status'] = 'active'
 
         if not all_signals and not any(f['status'] == 'active' for f in all_fvgs):
+            logger.info(f"{symbol}: アクティブなFVG/シグナルなし")
             return None
 
         def stringify_dates(d):
@@ -638,6 +658,11 @@ class HWBScanner:
             "fvgs": [stringify_dates(f.copy()) for f in all_fvgs],
             "signals": [stringify_dates(s.copy()) for s in all_signals]
         }
+        
+        logger.info(
+            f"{symbol}: 完了 - セットアップ:{len(setups)}, "
+            f"FVG:{len(all_fvgs)}, シグナル:{len(all_signals)}"
+        )
         
         self._save_symbol_data_with_chart(symbol, symbol_data, df_daily, df_weekly)
         return self._create_summary_from_data(symbol, all_signals, all_fvgs)
@@ -726,7 +751,6 @@ class HWBScanner:
         symbol = existing_data['symbol']
         signals = existing_data.get('signals', [])
         fvgs = existing_data.get('fvgs', [])
-        
         return self._create_summary_from_data(symbol, signals, fvgs)
 
     def _create_summary_from_data(self, symbol: str, signals: list, fvgs: list) -> List[Dict]:
@@ -784,7 +808,6 @@ class HWBScanner:
             "close": r.close
         } for i, r in df_plot.iterrows()]
 
-        # 出来高データ
         volume_data = []
         for i, r in df_plot.iterrows():
             color = '#26a69a' if r['close'] >= r['open'] else '#ef5350'
@@ -794,26 +817,19 @@ class HWBScanner:
                 "color": color
             })
 
-        # マーカー: FVGは🐮（真ん中のローソク足の上に）
         markers = []
 
-        # FVGマーカー（真ん中のローソク足 = formation_date の1つ前のインデックス）
         for fvg in symbol_data.get('fvgs', []):
             try:
                 formation_date = pd.to_datetime(fvg['formation_date'])
-
-                # formation_dateのインデックスを取得
                 if formation_date in df_plot.index:
                     formation_idx = df_plot.index.get_loc(formation_date)
-
-                    # 真ん中のローソク足は1つ前のインデックス
                     if formation_idx >= 1:
                         middle_candle_date = df_plot.index[formation_idx - 1]
-
                         color_map = {
-                            'active': '#FFD700',      # ゴールド
-                            'consumed': '#9370DB',    # 紫
-                            'violated': '#808080'     # グレー
+                            'active': '#FFD700',
+                            'consumed': '#9370DB',
+                            'violated': '#808080'
                         }
                         markers.append({
                             "time": middle_candle_date.strftime('%Y-%m-%d'),
@@ -825,12 +841,11 @@ class HWBScanner:
             except Exception as e:
                 logger.warning(f"FVGマーカー生成エラー: {symbol_data.get('symbol', 'N/A')} - {e}")
 
-        # シグナルマーカー（マゼンタで"Break"）
         for s in symbol_data.get('signals', []):
             markers.append({
                 "time": s['breakout_date'],
                 "position": "belowBar",
-                "color": "#FF00FF",  # マゼンタ
+                "color": "#FF00FF",
                 "shape": "arrowUp",
                 "text": "Break"
             })
@@ -849,16 +864,13 @@ class HWBScanner:
         end_time = datetime.now()
 
         def _merge_and_sort(items: List[Dict], date_key: str) -> List[Dict]:
-            """同じシンボル・日付の項目をマージし、スコアでソートする"""
             merged = {}
             for item in items:
                 if date_key not in item or 'symbol' not in item:
                     continue
-
                 key = (item['symbol'], item[date_key])
                 if key not in merged or item['score'] > merged[key]['score']:
                     merged[key] = item
-
             return sorted(list(merged.values()), key=lambda x: x['score'], reverse=True)
 
         all_signals = [r for r in results if r.get('signal_type') == 'signal']
