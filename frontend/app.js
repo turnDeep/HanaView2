@@ -591,7 +591,7 @@ renderLightweightChart(container, symbolData, width, height) {
         const volumeSeries = chart.addSeries(LightweightCharts.HistogramSeries, {
             priceFormat: { type: 'volume' },
             priceScaleId: '', // Separate pane
-            scaleMargins: { top: 0.7, bottom: 0.1 }, // Reduce top margin to make it less "floating"
+            scaleMargins: { top: 0.9, bottom: 0 }, // Reduce top margin to make it less "floating"
         });
         volumeSeries.setData(chartData.volume);
     }
