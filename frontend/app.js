@@ -23,6 +23,7 @@ document.addEventListener('DOMContentLoaded', () => {
     class AuthManager {
         static TOKEN_KEY = 'auth_token';
         static EXPIRY_KEY = 'auth_expiry';
+        static PERMISSION_KEY = 'auth_permission'; // 権限レベルを保存するキー
 
         static async setTokenInDB(token) {
             return new Promise((resolve, reject) => {
@@ -49,13 +50,14 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        static async setAuthData(token, expiresIn) {
+        static async setAuthData(token, expiresIn, permission) {
             localStorage.setItem(this.TOKEN_KEY, token);
             const expiryTime = Date.now() + (expiresIn * 1000);
             localStorage.setItem(this.EXPIRY_KEY, expiryTime.toString());
+            localStorage.setItem(this.PERMISSION_KEY, permission); // 権限を保存
             try {
                 await this.setTokenInDB(token);
-                console.log('Auth token stored in localStorage and IndexedDB. Expires at:', new Date(expiryTime).toLocaleString());
+                console.log(`Auth token and permission (${permission}) stored. Expires at:`, new Date(expiryTime).toLocaleString());
             } catch (error) {
                 console.error("Failed to store token in IndexedDB:", error);
             }
@@ -71,9 +73,14 @@ document.addEventListener('DOMContentLoaded', () => {
             return token;
         }
 
+        static getPermission() {
+            return localStorage.getItem(this.PERMISSION_KEY);
+        }
+
         static async clearAuthData() {
             localStorage.removeItem(this.TOKEN_KEY);
             localStorage.removeItem(this.EXPIRY_KEY);
+            localStorage.removeItem(this.PERMISSION_KEY); // 権限もクリア
             try {
                 await this.setTokenInDB(null);
                 console.log('Auth data cleared from localStorage and IndexedDB');
@@ -127,9 +134,27 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    function applyTabPermissions() {
+        const permission = AuthManager.getPermission();
+        const hwb200Tab = document.querySelector('.tab-button[data-tab="hwb200"]');
+
+        if (hwb200Tab) {
+            if (permission === 'standard') {
+                console.log("Standard permission: hiding 200MA tab.");
+                hwb200Tab.style.display = 'none';
+            } else {
+                console.log("Secret permission: showing 200MA tab.");
+                hwb200Tab.style.display = ''; // CSSのデフォルトに戻す
+            }
+        }
+    }
+
     function showDashboard() {
         if (authContainer) authContainer.style.display = 'none';
         if (dashboardContainer) dashboardContainer.style.display = 'block';
+
+        // 権限を適用
+        applyTabPermissions();
 
         const notificationManager = new NotificationManager();
         notificationManager.init();
@@ -206,7 +231,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             const data = await response.json();
             if (response.ok && data.success) {
-                await AuthManager.setAuthData(data.token, data.expires_in);
+                await AuthManager.setAuthData(data.token, data.expires_in, data.permission);
                 showDashboard();
             } else {
                 failedAttempts++;
@@ -1075,12 +1100,9 @@ class NotificationManager {
 
     async sendSubscriptionToServer(subscription) {
         try {
-            const response = await fetch('/api/subscribe', {
+            const response = await fetchWithAuth('/api/subscribe', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(subscription)
             });
             if (!response.ok) {
