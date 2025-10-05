@@ -613,11 +613,24 @@ renderLightweightChart(container, symbolData, width, height) {
 
     // 出来高チャート追加
     if (chartData.volume && chartData.volume.length > 0) {
-        const volumeSeries = chart.addSeries(LightweightCharts.HistogramSeries, {
+        // 1. ボリューム表示用の新しいペインを追加
+        const volumePane = chart.addPane();
+
+        // 2. 新しいペインにヒストグラムシリーズを追加
+        const volumeSeries = volumePane.addSeries(LightweightCharts.HistogramSeries, {
             priceFormat: { type: 'volume' },
-            priceScaleId: '', // Separate pane
-            scaleMargins: { top: 0.9, bottom: 0 }, // Reduce top margin to make it less "floating"
+            // v5では priceScaleId は不要です
         });
+
+        // 3. 新しいペインの価格スケールを取得し、オプションを適用
+        const volumePriceScale = volumePane.priceScale();
+        volumePriceScale.applyOptions({
+            scaleMargins: {
+                top: 0.9, // 上部の余白を90%に設定（シリーズが下部に配置される）
+                bottom: 0,  // 下部の余白を0に設定
+            },
+        });
+
         volumeSeries.setData(chartData.volume);
     }
 
