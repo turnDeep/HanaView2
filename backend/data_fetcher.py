@@ -1555,7 +1555,7 @@ class MarketDataFetcher:
 
 
     def send_push_notifications(self, custom_notification_data=None):
-        """Push通知を送信（カスタムデータ対応）"""
+        """Push通知を権限に基づいてフィルタリングして送信"""
         logger.info("Sending push notifications...")
 
         try:
@@ -1565,7 +1565,6 @@ class MarketDataFetcher:
 
             from pywebpush import webpush, WebPushException
 
-            # サブスクリプション読み込み
             subscriptions_file = os.path.join(DATA_DIR, 'push_subscriptions.json')
             if not os.path.exists(subscriptions_file):
                 logger.info("No push subscriptions found")
@@ -1578,7 +1577,6 @@ class MarketDataFetcher:
                 logger.info("No active push subscriptions")
                 return 0
 
-            # 通知データ作成（カスタムデータまたはデフォルト）
             if custom_notification_data:
                 notification_data = custom_notification_data
             else:
@@ -1590,11 +1588,18 @@ class MarketDataFetcher:
                     "type": "data-update"
                 }
 
+            is_hwb_scan_notification = notification_data.get("type") == "hwb-scan"
+
             sent_count = 0
             failed_subscriptions = []
 
-            # 各サブスクリプションに送信
-            for sub_id, subscription in subscriptions.items():
+            for sub_id, subscription in list(subscriptions.items()):
+                permission = subscription.get("permission", "standard")
+
+                if is_hwb_scan_notification and permission != "secret":
+                    logger.info(f"Skipping HWB notification for {sub_id} due to '{permission}' permission.")
+                    continue
+
                 try:
                     webpush(
                         subscription_info=subscription,
@@ -1611,10 +1616,10 @@ class MarketDataFetcher:
                 except Exception as e:
                     logger.error(f"Unexpected error sending notification to {sub_id}: {e}")
 
-            # 無効なサブスクリプションを削除
             if failed_subscriptions:
                 for sub_id in failed_subscriptions:
-                    del subscriptions[sub_id]
+                    if sub_id in subscriptions:
+                        del subscriptions[sub_id]
                 with open(subscriptions_file, 'w') as f:
                     json.dump(subscriptions, f)
                 logger.info(f"Removed {len(failed_subscriptions)} invalid subscriptions")

@@ -5,6 +5,9 @@ WORKDIR /app
 # Set the timezone to Japan Standard Time at the very beginning
 ENV TZ=Asia/Tokyo
 
+# Prevent interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
 # Install system dependencies including tzdata for timezone support
 RUN apt-get update && apt-get install -y \
     cron \

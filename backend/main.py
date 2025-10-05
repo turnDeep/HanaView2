@@ -54,6 +54,7 @@ async def startup_event():
 
 # --- Configuration ---
 AUTH_PIN = os.getenv("AUTH_PIN", "123456")
+SECRET_PIN = os.getenv("SECRET_PIN", "555555")  # 新しいシークレットPIN
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_DAYS = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_DAYS", 30))
 NOTIFICATION_TOKEN_NAME = "notification_token"
@@ -114,6 +115,27 @@ async def get_current_user(authorization: Optional[str] = Header(None)):
     except JWTError:
         raise HTTPException(status_code=401, detail="Token validation failed")
 
+async def get_current_user_payload(
+    authorization: Optional[str] = Header(None)
+):
+    """メインAPI用の認証（Authorizationヘッダー） - ペイロード全体を返す"""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authorization header missing or invalid"
+        )
+
+    token = authorization[7:]
+    try:
+        payload = jwt.decode(token, security_manager.jwt_secret, algorithms=[ALGORITHM])
+        if payload.get("type") != "main":
+            raise HTTPException(status_code=401, detail="Invalid token type")
+        if not payload.get("sub"):
+            raise HTTPException(status_code=401, detail="Invalid token")
+        return payload
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Token validation failed")
+
 async def get_current_user_for_notification(
     notification_token: Optional[str] = Cookie(None, alias=NOTIFICATION_TOKEN_NAME),
     authorization: Optional[str] = Header(None)
@@ -149,41 +171,48 @@ async def get_current_user_for_notification(
 @app.post("/api/auth/verify")
 def verify_pin(pin_data: PinVerification, response: Response, request: Request):
     """
-    PINを検証し、LocalStorage用トークンとクッキーの両方を設定
+    PINを検証し、権限レベルに応じて異なるトークンを生成する。
     """
+    permission = None
     if pin_data.pin == AUTH_PIN:
+        permission = "standard"
+    elif pin_data.pin == SECRET_PIN:
+        permission = "secret"
+
+    if permission:
         # メイン認証用（30日間）
         expires_long = timedelta(days=ACCESS_TOKEN_EXPIRE_DAYS)
         main_token = create_access_token(
-            data={"sub": "user", "type": "main"},
+            data={"sub": "user", "type": "main", "permission": permission},
             expires_delta=expires_long
         )
 
         # 通知用（24時間、自動更新される）
         expires_short = timedelta(hours=NOTIFICATION_TOKEN_EXPIRE_HOURS)
         notification_token = create_access_token(
-            data={"sub": "user", "type": "notification"},
+            data={"sub": "user", "type": "notification"}, # 通知トークンに権限は不要
             expires_delta=expires_short
         )
 
-        # 通知用クッキーを設定（httpOnly=Falseで設定）
+        # 通知用クッキーを設定
         is_https = request.headers.get("X-Forwarded-Proto") == "https"
         response.set_cookie(
             key=NOTIFICATION_TOKEN_NAME,
             value=notification_token,
-            httponly=False,  # Service Workerからアクセス可能
+            httponly=False,
             max_age=int(expires_short.total_seconds()),
             samesite="none" if is_https else "lax",
             path="/",
             secure=is_https
         )
 
-        # LocalStorage用のメイントークンを返す
+        # フロントエンドに返すレスポンス
         return {
             "success": True,
             "token": main_token,
             "expires_in": int(expires_long.total_seconds()),
-            "notification_cookie_set": True
+            "notification_cookie_set": True,
+            "permission": permission  # 権限レベルを返す
         }
     else:
         raise HTTPException(
@@ -219,11 +248,21 @@ def get_vapid_public_key():
 @app.post("/api/subscribe")
 async def subscribe_push(
     subscription: PushSubscription,
-    current_user: str = Depends(get_current_user_for_notification)  # ← 変更
+    payload: dict = Depends(get_current_user_payload)
 ):
-    """Push通知のサブスクリプション登録（クッキーベース認証）"""
+    """
+    Push通知のサブスクリプションを登録し、権限レベルも保存する。
+    メインの認証トークン（Authorizationヘッダー）が必要。
+    """
+    permission = payload.get("permission", "standard")  # デフォルトは 'standard'
     subscription_id = str(hash(subscription.endpoint))
-    push_subscriptions[subscription_id] = subscription.dict()
+
+    # サブスクリプションデータに権限を追加
+    subscription_data = subscription.dict()
+    subscription_data["permission"] = permission
+
+    # メモリとファイルに保存
+    push_subscriptions[subscription_id] = subscription_data
 
     subscriptions_file = os.path.join(DATA_DIR, 'push_subscriptions.json')
     try:
@@ -232,15 +271,18 @@ async def subscribe_push(
             with open(subscriptions_file, 'r') as f:
                 existing = json.load(f)
 
-        existing[subscription_id] = subscription.dict()
+        existing[subscription_id] = subscription_data
 
         with open(subscriptions_file, 'w') as f:
             json.dump(existing, f)
+
+        logger.info(f"Subscription {subscription_id} saved with '{permission}' permission.")
+
     except Exception as e:
-        print(f"Error saving subscription: {e}")
+        logger.error(f"Error saving subscription: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to save subscription")
 
-    return {"status": "subscribed", "id": subscription_id}
+    return {"status": "subscribed", "id": subscription_id, "permission": permission}
 
 @app.post("/api/send-notification")
 async def send_notification(
