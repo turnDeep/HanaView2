@@ -634,6 +634,27 @@ renderLightweightChart(container, symbolData, width, height) {
         volumeSeries.setData(chartData.volume);
     }
 
+    // --- MOVING AVERAGES ---
+    const maLines = [
+        { data: chartData.sma200, color: '#4a90e2', title: 'SMA 200' },
+        { data: chartData.ema200, color: '#f5a623', title: 'EMA 200' },
+        { data: chartData.weekly_sma200, color: '#d0021b', title: 'Weekly SMA 200' }
+    ];
+
+    maLines.forEach(ma => {
+        if (ma.data && ma.data.length > 0) {
+            const maSeries = chart.addSeries(LightweightCharts.LineSeries, {
+                color: ma.color,
+                lineWidth: 2,
+                title: ma.title,
+                // ラベルを非表示にするための設定
+                priceLineVisible: false,
+                lastValueVisible: false,
+            });
+            maSeries.setData(ma.data);
+        }
+    });
+
     // マーカー（FVGは🐮、ブレイクアウトはマゼンタで"Break"）
     if (chartData.markers && chartData.markers.length > 0) {
         LightweightCharts.createSeriesMarkers(candleSeries, chartData.markers);
