@@ -47,6 +47,7 @@
             <button class="tab-button" data-tab="indicators">指標</button>
             <button class="tab-button" data-tab="column">コラム</button>
             <button class="tab-button" data-tab="hwb200">200MA</button>
+            <button class="tab-button" data-tab="stage12">Stage1+2</button>
         </div>
 
         <main id="dashboard-content">
@@ -88,6 +89,13 @@
                     <div class="card">
                         <p>データがありません。「スキャン実行」ボタンをクリックしてください。</p>
                     </div>
+                </div>
+            </div>
+            <div id="stage12-content" class="tab-pane">
+                <!-- Content for Stage1+2 tab will be rendered here by app.js -->
+                <div class="loading-container">
+                    <p>Loading Stage1+2 data...</p>
+                    <div class="loading-spinner"></div>
                 </div>
             </div>
         </main>

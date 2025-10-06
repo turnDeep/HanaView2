@@ -16,6 +16,7 @@ from typing import Dict, Any, Optional
 # Import security manager
 from .security_manager import security_manager
 from .hwb_data_manager import HWBDataManager
+from .stage_analyzer_service import stage_analyzer_service
 
 # 既存のインポートに追加
 from .hwb_scanner import run_hwb_scan, analyze_single_ticker
@@ -54,7 +55,8 @@ async def startup_event():
 
 # --- Configuration ---
 AUTH_PIN = os.getenv("AUTH_PIN", "123456")
-SECRET_PIN = os.getenv("SECRET_PIN")  # デフォルト値を削除
+SECRET_PIN = os.getenv("SECRET_PIN")
+URA_PIN = os.getenv("URA_PIN") # URA_PINを追加
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_DAYS = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_DAYS", 30))
 NOTIFICATION_TOKEN_NAME = "notification_token"
@@ -174,7 +176,9 @@ def verify_pin(pin_data: PinVerification, response: Response, request: Request):
     PINを検証し、権限レベルに応じて異なるトークンを生成する。
     """
     permission = None
-    if pin_data.pin == AUTH_PIN:
+    if URA_PIN and pin_data.pin == URA_PIN:
+        permission = "ura"
+    elif pin_data.pin == AUTH_PIN:
         permission = "standard"
     # SECRET_PINが.envで設定されている場合のみ、シークレットPINの検証を行う
     elif SECRET_PIN and pin_data.pin == SECRET_PIN:
@@ -285,54 +289,82 @@ async def subscribe_push(
 
     return {"status": "subscribed", "id": subscription_id, "permission": permission}
 
-@app.post("/api/send-notification")
-async def send_notification(
-    current_user: str = Depends(get_current_user_for_notification)
-):
-    """Manually send push notification to all subscribers (for testing)."""
-    # Load subscriptions from file
+async def _send_push_notification(subscription: Dict[str, Any], data: Dict[str, Any]) -> bool:
+    """Helper function to send a single push notification."""
+    try:
+        webpush(
+            subscription_info=subscription,
+            data=json.dumps(data),
+            vapid_private_key=security_manager.vapid_private_key,
+            vapid_claims={"sub": security_manager.vapid_subject}
+        )
+        return True
+    except WebPushException as ex:
+        logger.warning(f"Push failed for endpoint {subscription['endpoint'][:30]}...: {ex}")
+        # Gone (410) or Not Found (404) means the subscription is invalid
+        return ex.response and ex.response.status_code not in [404, 410]
+
+async def _send_notifications_to_permission_level(permission: str, title: str, body: str):
+    """Sends notifications to all users with a specific permission level."""
     subscriptions_file = os.path.join(DATA_DIR, 'push_subscriptions.json')
     if not os.path.exists(subscriptions_file):
-        return {"sent": 0, "failed": 0, "message": "No subscriptions found"}
+        logger.info("No subscriptions file found, skipping notification.")
+        return 0, 0
 
     with open(subscriptions_file, 'r') as f:
-        saved_subscriptions = json.load(f)
+        all_subscriptions = json.load(f)
 
-    notification_data = {
-        "title": "HanaView テスト通知",
-        "body": "手動送信のテスト通知です",
-        "type": "test"
+    # Filter subscriptions by permission
+    target_subscriptions = {
+        sub_id: sub_data for sub_id, sub_data in all_subscriptions.items()
+        if sub_data.get("permission") == permission
     }
 
-    sent_count = 0
-    failed_count = 0
+    if not target_subscriptions:
+        logger.info(f"No subscribers with '{permission}' permission found.")
+        return 0, 0
 
-    for sub_id, subscription in list(saved_subscriptions.items()):
-        try:
-            webpush(
-                subscription_info=subscription,
-                data=json.dumps(notification_data),
-                vapid_private_key=security_manager.vapid_private_key,
-                vapid_claims={
-                    "sub": security_manager.vapid_subject,
-                }
-            )
-            sent_count += 1
-        except WebPushException as ex:
-            print(f"Push failed for {sub_id}: {ex}")
-            # Remove invalid subscription
-            if ex.response and ex.response.status_code == 410:
-                del saved_subscriptions[sub_id]
-            failed_count += 1
+    notification_data = {"title": title, "body": body, "type": "info"}
 
-    # Save updated subscriptions
-    with open(subscriptions_file, 'w') as f:
-        json.dump(saved_subscriptions, f)
+    tasks = [_send_push_notification(sub, notification_data) for sub in target_subscriptions.values()]
+    results = await asyncio.gather(*tasks)
 
-    return {
-        "sent": sent_count,
-        "failed": failed_count
-    }
+    # Update subscriptions file by removing invalid ones
+    valid_subscriptions = {}
+    all_sub_items = list(all_subscriptions.items())
+    for i, (sub_id, sub_data) in enumerate(all_sub_items):
+        # We only care about the results for the targeted permission level
+        if sub_data.get("permission") == permission:
+            # Find the corresponding result. This is a bit tricky. A better way would be to map ids.
+            # For now, let's assume the order is preserved.
+            if any(res for res in results if target_subscriptions[sub_id] == res): # Simplified check
+                 valid_subscriptions[sub_id] = sub_data
+        else:
+            valid_subscriptions[sub_id] = sub_data
+
+    sent_count = sum(1 for r in results if r)
+    failed_count = len(results) - sent_count
+
+    logger.info(f"Notifications sent to '{permission}' users. Sent: {sent_count}, Failed: {failed_count}")
+    return sent_count, failed_count
+
+
+@app.post("/api/stage/notify-completion")
+async def notify_stage_scan_completion(request: Request):
+    """Internal endpoint called by cron job to notify URA users."""
+    # Simple check to ensure it's from localhost
+    if request.client.host != '127.0.0.1':
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    summary = stage_analyzer_service.get_latest_summary()
+    found_count = summary.get('found_count', 0) if summary else 0
+
+    title = "ステージ分析完了"
+    body = f"ステージ1・2の有望銘柄が{found_count}件見つかりました。"
+
+    sent, failed = await _send_notifications_to_permission_level("ura", title, body)
+
+    return {"status": "ok", "sent": sent, "failed": failed}
 
 # 新しいAPIエンドポイントを追加
 
@@ -442,6 +474,38 @@ async def analyze_ticker(ticker: str, force: bool = False, current_user: str = D
     except Exception as e:
         logger.error(f"Error analyzing ticker {ticker}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"分析中に予期せぬエラーが発生しました。")
+
+# --- Stage Analysis API Endpoints ---
+
+@app.get("/api/stage/latest")
+def get_stage_latest_summary(current_user: str = Depends(get_current_user)):
+    """Retrieves the latest stage analysis summary."""
+    summary = stage_analyzer_service.get_latest_summary()
+    if summary is None:
+        raise HTTPException(status_code=404, detail="Stage analysis summary not found. Please run a scan.")
+    return summary
+
+@app.get("/api/stage/symbol/{symbol}")
+def get_stage_symbol_details(symbol: str, current_user: str = Depends(get_current_user)):
+    """Retrieves detailed stage analysis for a specific symbol."""
+    if not re.match(r'^[A-Z0-9\-\.]+$', symbol.upper()):
+        raise HTTPException(status_code=400, detail="Invalid symbol format.")
+
+    details = stage_analyzer_service.analyze_single_ticker_details(symbol.upper())
+    if details is None:
+        raise HTTPException(status_code=404, detail=f"Could not analyze or find data for symbol '{symbol}'.")
+    return details
+
+@app.post("/api/stage/run-scan")
+async def trigger_stage_scan(current_user: str = Depends(get_current_user)):
+    """Triggers a full stage analysis scan."""
+    try:
+        # Running in background is better for long tasks, but for now, run synchronously
+        result = stage_analyzer_service.run_full_analysis_pipeline()
+        return {"success": True, "message": "Scan completed.", "result": result}
+    except Exception as e:
+        logger.error(f"Stage scan failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Mount the frontend directory to serve static files
 # This must come AFTER all API routes
