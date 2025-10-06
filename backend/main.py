@@ -54,7 +54,7 @@ async def startup_event():
 
 # --- Configuration ---
 AUTH_PIN = os.getenv("AUTH_PIN", "123456")
-SECRET_PIN = os.getenv("SECRET_PIN", "555555")  # 新しいシークレットPIN
+SECRET_PIN = os.getenv("SECRET_PIN")  # デフォルト値を削除
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_DAYS = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_DAYS", 30))
 NOTIFICATION_TOKEN_NAME = "notification_token"
@@ -176,7 +176,8 @@ def verify_pin(pin_data: PinVerification, response: Response, request: Request):
     permission = None
     if pin_data.pin == AUTH_PIN:
         permission = "standard"
-    elif pin_data.pin == SECRET_PIN:
+    # SECRET_PINが.envで設定されている場合のみ、シークレットPINの検証を行う
+    elif SECRET_PIN and pin_data.pin == SECRET_PIN:
         permission = "secret"
 
     if permission:
