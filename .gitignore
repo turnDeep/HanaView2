@@ -8,8 +8,5 @@ __pycache__/
 # Ignore scratch directory for verification scripts
 /jules-scratch/
 
-# Ignore environment files
-.env
-
 # Ignore log files
 *.log
