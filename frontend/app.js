@@ -137,15 +137,24 @@ document.addEventListener('DOMContentLoaded', () => {
     function applyTabPermissions() {
         const permission = AuthManager.getPermission();
         const hwb200Tab = document.querySelector('.tab-button[data-tab="hwb200"]');
+        const stage12Tab = document.querySelector('.tab-button[data-tab="stage12"]');
 
-        if (hwb200Tab) {
-            if (permission === 'standard') {
-                console.log("Standard permission: hiding 200MA tab.");
-                hwb200Tab.style.display = 'none';
-            } else {
-                console.log("Secret permission: showing 200MA tab.");
-                hwb200Tab.style.display = ''; // CSSのデフォルトに戻す
-            }
+        console.log(`Applying permissions for level: ${permission}`);
+
+        // Default to visible, then hide based on rules
+        if (hwb200Tab) hwb200Tab.style.display = '';
+        if (stage12Tab) stage12Tab.style.display = '';
+
+        if (permission === 'standard') {
+            console.log("Standard permission: Hiding 200MA and Stage1+2 tabs.");
+            if (hwb200Tab) hwb200Tab.style.display = 'none';
+            if (stage12Tab) stage12Tab.style.display = 'none';
+        } else if (permission === 'secret') {
+            console.log("Secret permission: Hiding Stage1+2 tab.");
+            if (stage12Tab) stage12Tab.style.display = 'none';
+        } else if (permission === 'ura') {
+            console.log("Ura permission: All tabs visible.");
+            // All tabs are visible by default, so no action needed.
         }
     }
 
@@ -168,6 +177,10 @@ document.addEventListener('DOMContentLoaded', () => {
             // HWB200MAManagerの初期化（タブが存在する場合のみ）
             if (document.getElementById('hwb200-content')) {
                 initHWB200MA();
+            }
+            // Stage12Managerの初期化
+            if (document.getElementById('stage12-content')) {
+                initStage12();
             }
 
             dashboardContainer.dataset.initialized = 'true';
@@ -289,6 +302,10 @@ document.addEventListener('DOMContentLoaded', () => {
             // HWB200タブがアクティブになった時にデータをロード
             if (targetTab === 'hwb200' && window.hwb200Manager) {
                 window.hwb200Manager.loadData();
+            }
+            // Stage12タブがアクティブになった時にデータをロード
+            if (targetTab === 'stage12' && window.stage12Manager) {
+                window.stage12Manager.loadData();
             }
 
             setTimeout(() => window.scrollTo(0, 0), 0);
@@ -784,6 +801,288 @@ renderLightweightChart(container, symbolData, width, height) {
 
             // チャートを描画
             this.renderLightweightChart(chartDiv, symbolData, 900, 600);
+        }
+    }
+
+    // --- Stage 1+2 Manager ---
+    function initStage12() {
+        window.stage12Manager = new Stage12Manager();
+        console.log('Stage12Manager initialized');
+    }
+
+    class Stage12Manager {
+        constructor() {
+            this.summaryData = null;
+            this.container = document.getElementById('stage12-content');
+        }
+
+        async loadData() {
+            // Data is loaded only once
+            if (this.summaryData) {
+                return;
+            }
+            this.showLoading('最新のステージ分析データを読み込み中...');
+            try {
+                const response = await fetchWithAuth('/api/stage/latest');
+                if (!response.ok) {
+                    if (response.status === 404) {
+                        this.showError('ステージ分析データが見つかりません。スキャンを実行してください。');
+                    } else {
+                        throw new Error(`Server error: ${response.status}`);
+                    }
+                    return;
+                }
+                this.summaryData = await response.json();
+                this.render();
+            } catch (error) {
+                console.error('Stage 1+2 summary loading error:', error);
+                this.showError(`❌ データ読み込みエラー: ${error.message}`);
+            }
+        }
+
+        render() {
+            if (!this.summaryData || !this.summaryData.stocks || this.summaryData.stocks.length === 0) {
+                this.showError('分析データが見つかりません。');
+                return;
+            }
+            this.container.innerHTML = ''; // Clear loading message
+
+            const header = document.createElement('div');
+            header.className = 'stage12-header';
+            header.innerHTML = `
+                <h2>Stage 1 & 2 Candidates</h2>
+                <p class="last-updated">Last Scan: ${formatDateForDisplay(this.summaryData.scan_timestamp)} | Found: ${this.summaryData.found_count} stocks</p>
+            `;
+            this.container.appendChild(header);
+
+            const grid = document.createElement('div');
+            grid.className = 'stage12-grid';
+            this.container.appendChild(grid);
+
+            this.summaryData.stocks.forEach(stock => {
+                const stockCard = this.createStockCard(stock);
+                grid.appendChild(stockCard);
+            });
+        }
+
+        createStockCard(stock) {
+            const card = document.createElement('div');
+            card.className = 'stage12-card';
+            card.dataset.symbol = stock.ticker;
+            card.innerHTML = `
+                <div class="stage12-card-header">
+                    <h3>${stock.ticker}</h3>
+                    <span class="stage-badge stage-${stock.current_stage}">Stage ${stock.current_stage}</span>
+                </div>
+                <div class="stage12-card-body">
+                    <div class="info-grid">
+                        <div><span>Price:</span> <strong>$${stock.latest_price.toFixed(2)}</strong></div>
+                        <div><span>MA50:</span> <strong>$${stock.ma50.toFixed(2)}</strong></div>
+                        <div><span>RS Rating:</span> <strong>${stock.rs_rating.toFixed(0)}</strong></div>
+                        <div><span>Score:</span> <strong>${stock.score}</strong></div>
+                    </div>
+                    <div class="judgment-section">
+                        <p><strong>Judgment:</strong> ${stock.judgment}</p>
+                        <p><strong>Action:</strong> ${stock.action}</p>
+                    </div>
+                    <div class="chart-placeholder">Loading chart...</div>
+                </div>
+            `;
+            // Add click listener to load detailed chart
+            card.addEventListener('click', () => this.showDetailedView(stock.ticker));
+            return card;
+        }
+
+        async showDetailedView(ticker) {
+            this.showLoading(`Loading detailed analysis for ${ticker}...`);
+            try {
+                const response = await fetchWithAuth(`/api/stage/symbol/${ticker}`);
+                if (!response.ok) {
+                    throw new Error(`Failed to load details for ${ticker} (Status: ${response.status})`);
+                }
+                const details = await response.json();
+                this.renderDetailedView(details);
+            } catch (error) {
+                console.error(`Error fetching details for ${ticker}:`, error);
+                this.showError(`❌ Failed to load analysis for ${ticker}.`);
+            }
+        }
+
+        renderDetailedView(details) {
+            this.container.innerHTML = ''; // Clear view
+
+            const detailWrapper = document.createElement('div');
+            detailWrapper.className = 'stage-detail-wrapper';
+
+            const backButton = document.createElement('button');
+            backButton.className = 'stage-detail-back-btn';
+            backButton.innerHTML = '&larr; Back to List';
+            backButton.onclick = () => this.render(); // Re-render summary view
+
+            const header = document.createElement('h2');
+            header.textContent = `${details.ticker} - Detailed Analysis`;
+
+            this.container.appendChild(backButton);
+            this.container.appendChild(header);
+            this.container.appendChild(detailWrapper);
+
+            // Layout for chart and info panel
+            const chartContainer = document.createElement('div');
+            chartContainer.id = 'stage-chart-container';
+            chartContainer.className = 'stage-chart-container';
+
+            const infoPanel = document.createElement('div');
+            infoPanel.className = 'stage-info-panel';
+
+            detailWrapper.appendChild(chartContainer);
+            detailWrapper.appendChild(infoPanel);
+
+            // Populate the info panel
+            infoPanel.innerHTML = `
+                <h4>Analysis Details</h4>
+                <div class="info-item"><span>Ticker:</span> <strong>${details.ticker}</strong></div>
+                <div class="info-item"><span>Stage:</span> <strong>${details.current_stage} (${details.stage_name})</strong></div>
+                <div class="info-item"><span>Stage Start:</span> <strong>${details.stage_start_date}</strong></div>
+                <hr>
+                <div class="info-item"><span>Score:</span> <strong class="score">${details.score}</strong></div>
+                <div class="info-item"><span>Judgment:</span> <strong>${details.judgment}</strong></div>
+                <div class="info-item action"><span>Action:</span> <p>${details.action}</p></div>
+                <hr>
+                <div class="info-item"><span>Latest Price:</span> <strong>$${details.latest_price.toFixed(2)}</strong></div>
+                <div class="info-item"><span>50-Day MA:</span> <strong>$${details.ma50.toFixed(2)}</strong></div>
+                <div class="info-item"><span>RS Rating:</span> <strong>${details.rs_rating.toFixed(0)} / 100</strong></div>
+                <div class="info-item"><span>ATR Multiple:</span> <strong>${details.atr_multiple.toFixed(2)}x</strong></div>
+            `;
+
+            // Placeholder for the chart rendering call
+            if (details.chart_json) {
+                // The actual rendering will be done in the next step
+                this.renderStageChart(chartContainer, details);
+            } else {
+                chartContainer.innerHTML = '<p>Chart data not available.</p>';
+            }
+        }
+
+        renderStageChart(container, details) {
+            const chartData = details.chart_json;
+            if (!container || !chartData || !chartData.candles || chartData.candles.length === 0) {
+                container.innerHTML = '<p>Chart data is not available.</p>';
+                return;
+            }
+            container.innerHTML = '';
+            container.style.position = 'relative'; // Needed for overlay positioning
+
+            const chart = LightweightCharts.createChart(container, {
+                width: container.clientWidth,
+                height: 500,
+                layout: { backgroundColor: '#ffffff', textColor: '#333' },
+                grid: { vertLines: { color: '#f1f1f1' }, horzLines: { color: '#f1f1f1' } },
+                timeScale: { borderColor: '#cccccc', timeVisible: true },
+                crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+            });
+
+            const candleSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
+                upColor: '#26a69a', downColor: '#ef5350', borderDownColor: '#ef5350',
+                borderUpColor: '#26a69a', wickDownColor: '#ef5350', wickUpColor: '#26a69a',
+            });
+            candleSeries.setData(chartData.candles);
+
+            if (chartData.volume && chartData.volume.length > 0) {
+                const volumePane = chart.addPane();
+                const volumeSeries = volumePane.addSeries(LightweightCharts.HistogramSeries, { priceFormat: { type: 'volume' } });
+                volumePane.priceScale().applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
+                volumeSeries.setData(chartData.volume);
+            }
+
+            const maLines = [
+                { data: chartData.ema9, color: '#FF6D00', title: 'EMA 9' },
+                { data: chartData.ema21, color: '#2962FF', title: 'EMA 21' },
+                { data: chartData.ma50, color: '#9C27B0', title: 'SMA 50' },
+                { data: chartData.ma200, color: '#F50057', title: 'SMA 200' },
+            ];
+            maLines.forEach(ma => {
+                if (ma.data && ma.data.length > 0) {
+                    const maSeries = chart.addSeries(LightweightCharts.LineSeries, {
+                        color: ma.color, lineWidth: 2, title: ma.title,
+                        priceLineVisible: false, lastValueVisible: false,
+                    });
+                    maSeries.setData(ma.data);
+                }
+            });
+
+            // --- Custom Stage Shading Overlay ---
+            // Lightweight Charts does not have a built-in API for vertical region shading.
+            // This custom overlay is a workaround. It's a div positioned directly
+            // on top of the chart. We then programmatically add colored, semi-transparent
+            // divs to it, sized and positioned based on the chart's time-to-pixel coordinates.
+            // The overlay is redrawn on zoom/scroll and resize to stay in sync.
+            const stageOverlay = document.createElement('div');
+            stageOverlay.className = 'stage-overlay';
+            container.appendChild(stageOverlay);
+
+            const stageColors = {
+                1: 'rgba(38, 166, 154, 0.1)',   // Green
+                2: 'rgba(255, 109, 0, 0.15)',  // Orange
+                3: 'rgba(239, 83, 80, 0.15)',   // Red
+                4: 'rgba(156, 39, 176, 0.1)'   // Purple
+            };
+
+            const drawStageOverlays = () => {
+                stageOverlay.innerHTML = '';
+                const timeScale = chart.timeScale();
+                const chartWidth = container.clientWidth;
+
+                if (!details.stage_history || details.stage_history.length === 0) return;
+
+                for (let i = 0; i < details.stage_history.length; i++) {
+                    const segment = details.stage_history[i];
+                    const nextSegment = details.stage_history[i + 1];
+
+                    const startCoord = timeScale.timeToCoordinate(segment.date);
+                    const endCoord = nextSegment ? timeScale.timeToCoordinate(nextSegment.date) : chartWidth;
+
+                    if (startCoord === null && endCoord === null) continue;
+
+                    const left = Math.max(0, startCoord || 0);
+                    const right = Math.min(chartWidth, endCoord || chartWidth);
+                    const width = right - left;
+
+                    if (width > 0) {
+                        const rect = document.createElement('div');
+                        rect.className = 'stage-rect';
+                        rect.style.left = `${left}px`;
+                        rect.style.width = `${width}px`;
+                        rect.style.backgroundColor = stageColors[segment.stage] || 'transparent';
+
+                        const label = document.createElement('span');
+                        label.className = 'stage-label';
+                        label.textContent = `Stage ${segment.stage}`;
+                        rect.appendChild(label);
+
+                        stageOverlay.appendChild(rect);
+                    }
+                }
+            };
+
+            // Initial draw and subscribe to updates
+            chart.timeScale().subscribeVisibleLogicalRangeChange(drawStageOverlays);
+            new ResizeObserver(drawStageOverlays).observe(container);
+
+            chart.timeScale().fitContent();
+            // A small delay to ensure the chart has rendered before drawing the overlay
+            setTimeout(drawStageOverlays, 50);
+        }
+
+        showLoading(message) {
+            this.container.innerHTML = `
+                <div class="loading-container">
+                    <p>${message}</p>
+                    <div class="loading-spinner"></div>
+                </div>`;
+        }
+
+        showError(message) {
+            this.container.innerHTML = `<div class="card"><p>${message}</p></div>`;
         }
     }
 
