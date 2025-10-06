@@ -1032,6 +1032,11 @@ renderLightweightChart(container, symbolData, width, height) {
                 const timeScale = chart.timeScale();
                 const chartWidth = container.clientWidth;
 
+                // Dynamically find the main price pane's canvas height
+                const mainPane = container.querySelector('tr:first-child .chart-markup-table canvas');
+                if (!mainPane) return;
+                const mainPaneHeight = mainPane.clientHeight;
+
                 if (!details.stage_history || details.stage_history.length === 0) return;
 
                 for (let i = 0; i < details.stage_history.length; i++) {
@@ -1052,11 +1057,12 @@ renderLightweightChart(container, symbolData, width, height) {
                         rect.className = 'stage-rect';
                         rect.style.left = `${left}px`;
                         rect.style.width = `${width}px`;
+                        rect.style.height = `${mainPaneHeight}px`; // Apply dynamic height
                         rect.style.backgroundColor = stageColors[segment.stage] || 'transparent';
 
                         const label = document.createElement('span');
                         label.className = 'stage-label';
-                        label.textContent = `Stage ${segment.stage}`;
+                        label.textContent = `第${segment.stage}ステージ`; // Localized label
                         rect.appendChild(label);
 
                         stageOverlay.appendChild(rect);

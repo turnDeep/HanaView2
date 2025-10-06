@@ -1296,7 +1296,6 @@ body {
 .stage-rect {
     position: absolute;
     top: 30px; /* Below chart title */
-    height: calc(50% - 30px); /* Main pane height approximation */
     display: flex;
     align-items: flex-start;
     justify-content: center;
