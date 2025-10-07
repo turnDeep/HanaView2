@@ -1,4 +1,3 @@
-# This file will encapsulate the stage analysis logic for API usage.
 import pandas as pd
 import numpy as np
 import yfinance as yf
@@ -8,7 +7,6 @@ from curl_cffi.requests import Session
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, asdict, field
 from typing import Optional, Dict, List, Tuple
-import pandas_ta as ta
 from datetime import datetime
 import json
 import os
@@ -18,7 +16,7 @@ import warnings
 
 warnings.filterwarnings('ignore')
 
-# Use the same logger as the main app
+# logger設定
 logger = logging.getLogger(__name__)
 
 # --- Data Classes ---
@@ -90,26 +88,48 @@ def calculate_rs_rating(stock_data: pd.DataFrame, benchmark_data: pd.DataFrame) 
     return rs_rating.fillna(0)
 
 def calculate_indicators(stock_data: pd.DataFrame, benchmark_data: pd.DataFrame) -> pd.DataFrame:
-    """Calculates all necessary technical indicators."""
+    """Calculates all necessary technical indicators using standard pandas."""
     df = stock_data.copy()
-    df['ema9'] = ta.ema(df['Close'], length=9)
-    df['ema21'] = ta.ema(df['Close'], length=21)
-    df['ma50'] = ta.sma(df['Close'], length=50)
-    df['ma200'] = ta.sma(df['Close'], length=200)
-    df['volume_ma50'] = ta.sma(df['Volume'], length=50)
+
+    # EMA (Exponential Moving Average)
+    df['ema9'] = df['Close'].ewm(span=9, adjust=False).mean()
+    df['ema21'] = df['Close'].ewm(span=21, adjust=False).mean()
+
+    # SMA (Simple Moving Average)
+    df['ma50'] = df['Close'].rolling(window=50).mean()
+    df['ma200'] = df['Close'].rolling(window=200).mean()
+    df['volume_ma50'] = df['Volume'].rolling(window=50).mean()
+
+    # MA50 Slope
     df['ma50_slope'] = df['ma50'].rolling(window=10).apply(
         lambda x: calculate_ma_slope(pd.Series(x), period=10), raw=False
     ).fillna(0)
-    df['vwap'] = ta.vwap(high=df['High'], low=df['Low'], close=df['Close'], volume=df['Volume'])
+
+    # VWAP (Volume Weighted Average Price)
+    df['vwap'] = (df['Close'] * df['Volume']).cumsum() / df['Volume'].cumsum()
+
+    # VWAP Slope
     df['vwap_slope'] = df['vwap'].rolling(window=10).apply(
         lambda x: calculate_ma_slope(pd.Series(x), period=10), raw=False
     ).fillna(0)
+
+    # Relative Strength Rating
     df['rs_rating'] = calculate_rs_rating(df, benchmark_data)
-    df['rs_rating_ma10'] = ta.sma(df['rs_rating'], length=10)
-    df['atr'] = ta.atr(df['High'], df['Low'], df['Close'], length=14)
+    df['rs_rating_ma10'] = df['rs_rating'].rolling(window=10).mean()
+
+    # ATR (Average True Range)
+    high_low = df['High'] - df['Low']
+    high_close = (df['High'] - df['Close'].shift()).abs()
+    low_close = (df['Low'] - df['Close'].shift()).abs()
+
+    true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+    df['atr'] = true_range.rolling(window=14).mean()
+
+    # ATR MA Distance Multiple
     df['atr_ma_distance_multiple'] = np.where(
         df['atr'] > 0, abs(df['Close'] - df['ma50']) / df['atr'], 0
     )
+
     df.dropna(inplace=True)
     return df
 
