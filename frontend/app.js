@@ -23,7 +23,7 @@ document.addEventListener('DOMContentLoaded', () => {
     class AuthManager {
         static TOKEN_KEY = 'auth_token';
         static EXPIRY_KEY = 'auth_expiry';
-        static PERMISSION_KEY = 'auth_permission'; // 権限レベルを保存するキー
+        static PERMISSION_KEY = 'auth_permission';
 
         static async setTokenInDB(token) {
             return new Promise((resolve, reject) => {
@@ -54,7 +54,7 @@ document.addEventListener('DOMContentLoaded', () => {
             localStorage.setItem(this.TOKEN_KEY, token);
             const expiryTime = Date.now() + (expiresIn * 1000);
             localStorage.setItem(this.EXPIRY_KEY, expiryTime.toString());
-            localStorage.setItem(this.PERMISSION_KEY, permission); // 権限を保存
+            localStorage.setItem(this.PERMISSION_KEY, permission);
             try {
                 await this.setTokenInDB(token);
                 console.log(`Auth token and permission (${permission}) stored. Expires at:`, new Date(expiryTime).toLocaleString());
@@ -80,7 +80,7 @@ document.addEventListener('DOMContentLoaded', () => {
         static async clearAuthData() {
             localStorage.removeItem(this.TOKEN_KEY);
             localStorage.removeItem(this.EXPIRY_KEY);
-            localStorage.removeItem(this.PERMISSION_KEY); // 権限もクリア
+            localStorage.removeItem(this.PERMISSION_KEY);
             try {
                 await this.setTokenInDB(null);
                 console.log('Auth data cleared from localStorage and IndexedDB');
@@ -141,7 +141,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         console.log(`Applying permissions for level: ${permission}`);
 
-        // Default to visible, then hide based on rules
         if (hwb200Tab) hwb200Tab.style.display = '';
         if (stage12Tab) stage12Tab.style.display = '';
 
@@ -154,7 +153,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (stage12Tab) stage12Tab.style.display = 'none';
         } else if (permission === 'ura') {
             console.log("Ura permission: All tabs visible.");
-            // All tabs are visible by default, so no action needed.
         }
     }
 
@@ -162,7 +160,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (authContainer) authContainer.style.display = 'none';
         if (dashboardContainer) dashboardContainer.style.display = 'block';
 
-        // 権限を適用
         applyTabPermissions();
 
         const notificationManager = new NotificationManager();
@@ -174,11 +171,9 @@ document.addEventListener('DOMContentLoaded', () => {
             fetchDataAndRender();
             initSwipeNavigation();
 
-            // HWB200MAManagerの初期化（タブが存在する場合のみ）
             if (document.getElementById('hwb200-content')) {
                 initHWB200MA();
             }
-            // Stage12Managerの初期化
             if (document.getElementById('stage12-content')) {
                 initStage12();
             }
@@ -295,15 +290,12 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!e.target.matches('.tab-button')) return;
             const targetTab = e.target.dataset.tab;
 
-            // Update active states
             document.querySelectorAll('.tab-button').forEach(b => b.classList.toggle('active', b.dataset.tab === targetTab));
             document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id === `${targetTab}-content`));
 
-            // HWB200タブがアクティブになった時にデータをロード
             if (targetTab === 'hwb200' && window.hwb200Manager) {
                 window.hwb200Manager.loadData();
             }
-            // Stage12タブがアクティブになった時にデータをロード
             if (targetTab === 'stage12' && window.stage12Manager) {
                 window.stage12Manager.loadData();
             }
@@ -312,10 +304,10 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // --- HWB 200MA Manager (New Version) ---
+    // --- HWB 200MA Manager ---
     function initHWB200MA() {
         window.hwb200Manager = new HWB200MAManager();
-        console.log('HWB200MAManager (v2) initialized');
+        console.log('HWB200MAManager initialized');
     }
 
     class HWB200MAManager {
@@ -341,17 +333,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 contentDiv.addEventListener('click', (e) => {
                     const analysisButton = e.target.closest('.hwb-analysis-button');
                     if (analysisButton) {
-                        e.stopPropagation(); // Prevent card click event from firing
+                        e.stopPropagation();
                         const symbol = analysisButton.dataset.symbol;
                         this.showAnalysisChart(symbol);
                         return;
                     }
-
-                    // This logic is now handled automatically on render.
-                    // const card = e.target.closest('.hwb-chart-card');
-                    // if (card && !card.dataset.chartLoaded) {
-                    //     this.loadSymbolChart(card);
-                    // }
                 });
             }
         }
@@ -368,7 +354,6 @@ document.addEventListener('DOMContentLoaded', () => {
             this.showStatus(`${ticker}のデータを確認中...`, 'info');
 
             try {
-                // まず既存データを確認（force=false）
                 let response = await fetchWithAuth(`/api/hwb/analyze_ticker?ticker=${ticker}`);
 
                 if (!response.ok) {
@@ -376,7 +361,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         const error = await response.json();
                         this.showStatus(`ℹ️ ${error.detail}`, 'warning');
 
-                        // 「強制的に分析する」オプションを表示
                         if (confirm(`${ticker}はまだ分析されていません。\n今すぐ分析しますか？（10-30秒かかります）`)) {
                             this.showStatus(`${ticker}を分析中... お待ちください`, 'info');
                             response = await fetchWithAuth(`/api/hwb/analyze_ticker?ticker=${ticker}&force=true`);
@@ -395,19 +379,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const symbolData = await response.json();
 
-                // Switch to analysis view
                 const summaryContainer = document.getElementById('hwb-content');
                 if (summaryContainer) summaryContainer.style.display = 'none';
 
                 const analysisContainer = document.getElementById('hwb-analysis-content');
                 if (analysisContainer) {
                     analysisContainer.style.display = 'block';
-                    analysisContainer.innerHTML = ''; // Clear previous
+                    analysisContainer.innerHTML = '';
                 }
 
                 this.renderAnalysisChart(symbolData);
 
-                // Update button state
                 const analyzeBtn = document.getElementById('hwb-analyze-btn');
                 if (analyzeBtn) {
                     analyzeBtn.textContent = 'リセット';
@@ -434,7 +416,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (analysisContainer) {
                 analysisContainer.style.display = 'none';
-                analysisContainer.innerHTML = ''; // Clear content
+                analysisContainer.innerHTML = '';
             }
             if (summaryContainer) {
                 summaryContainer.style.display = 'block';
@@ -480,7 +462,7 @@ document.addEventListener('DOMContentLoaded', () => {
         render() {
             if (!this.summaryData) return;
             const container = document.getElementById('hwb-content');
-            container.innerHTML = ''; // Clear previous content
+            container.innerHTML = '';
 
             this.renderSummary(container);
             this.renderLists(container);
@@ -539,7 +521,6 @@ document.addEventListener('DOMContentLoaded', () => {
             section.appendChild(grid);
             container.appendChild(section);
 
-            // Load charts sequentially
             for (const card of cards) {
                 await this.loadSymbolChart(card);
             }
@@ -583,13 +564,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const symbolData = await response.json();
 
-                placeholder.style.display = 'none'; // Hide placeholder
+                placeholder.style.display = 'none';
 
                 const chartContainer = document.createElement('div');
                 chartContainer.className = 'hwb-chart-container';
                 card.appendChild(chartContainer);
 
-                // Pass the entire symbolData object to the rendering function
                 this.renderLightweightChart(chartContainer, symbolData);
 
                 card.dataset.chartLoaded = 'true';
@@ -601,113 +581,99 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-renderLightweightChart(container, symbolData, width, height) {
-    const chartData = symbolData.chart_data;
-    const isAnalysisChart = !!(width && height); // 詳細分析チャートかどうか
+        renderLightweightChart(container, symbolData, width, height) {
+            const chartData = symbolData.chart_data;
 
-    if (!container || !chartData || !chartData.candles || chartData.candles.length === 0) {
-        container.innerHTML = '<p>Chart data is not available.</p>';
-        return;
-    }
+            if (!container || !chartData || !chartData.candles || chartData.candles.length === 0) {
+                container.innerHTML = '<p>Chart data is not available.</p>';
+                return;
+            }
 
-    const chart = LightweightCharts.createChart(container, {
-        width: width || container.clientWidth,
-        height: height || 300,
-        layout: { backgroundColor: '#ffffff', textColor: '#333' },
-        grid: { vertLines: { color: '#e1e1e1' }, horzLines: { color: '#e1e1e1' } },
-        timeScale: { borderColor: '#cccccc', timeVisible: true },
-    });
-
-    const candleSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
-        upColor: '#26a69a',
-        downColor: '#ef5350',
-        borderDownColor: '#ef5350',
-        borderUpColor: '#26a69a',
-        wickDownColor: '#ef5350',
-        wickUpColor: '#26a69a',
-    });
-    candleSeries.setData(chartData.candles);
-
-    // 出来高チャート追加
-    if (chartData.volume && chartData.volume.length > 0) {
-        // 1. ボリューム表示用の新しいペインを追加
-        const volumePane = chart.addPane();
-
-        // 2. 新しいペインにヒストグラムシリーズを追加
-        const volumeSeries = volumePane.addSeries(LightweightCharts.HistogramSeries, {
-            priceFormat: { type: 'volume' },
-            // v5では priceScaleId は不要です
-        });
-
-        // 3. 新しいペインの価格スケールを取得し、オプションを適用
-        const volumePriceScale = volumePane.priceScale();
-        volumePriceScale.applyOptions({
-            scaleMargins: {
-                top: 0.9, // 上部の余白を90%に設定（シリーズが下部に配置される）
-                bottom: 0,  // 下部の余白を0に設定
-            },
-        });
-
-        volumeSeries.setData(chartData.volume);
-    }
-
-    // --- MOVING AVERAGES ---
-    const maLines = [
-        { data: chartData.sma200, color: '#4a90e2', title: 'SMA 200' },
-        { data: chartData.ema200, color: '#f5a623', title: 'EMA 200' },
-        { data: chartData.weekly_sma200, color: '#d0021b', title: 'Weekly SMA 200' }
-    ];
-
-    maLines.forEach(ma => {
-        if (ma.data && ma.data.length > 0) {
-            const maSeries = chart.addSeries(LightweightCharts.LineSeries, {
-                color: ma.color,
-                lineWidth: 2,
-                title: ma.title,
-                // ラベルを非表示にするための設定
-                priceLineVisible: false,
-                lastValueVisible: false,
+            const chart = LightweightCharts.createChart(container, {
+                width: width || container.clientWidth,
+                height: height || 300,
+                layout: { backgroundColor: '#ffffff', textColor: '#333' },
+                grid: { vertLines: { color: '#e1e1e1' }, horzLines: { color: '#e1e1e1' } },
+                timeScale: { borderColor: '#cccccc', timeVisible: true },
             });
-            maSeries.setData(ma.data);
+
+            const candleSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
+                upColor: '#26a69a',
+                downColor: '#ef5350',
+                borderDownColor: '#ef5350',
+                borderUpColor: '#26a69a',
+                wickDownColor: '#ef5350',
+                wickUpColor: '#26a69a',
+            });
+            candleSeries.setData(chartData.candles);
+
+            // ボリュームチャート（v5の新しいペイン方式）
+            if (chartData.volume && chartData.volume.length > 0) {
+                const volumePane = chart.addPane();
+                const volumeSeries = volumePane.addSeries(LightweightCharts.HistogramSeries, {
+                    priceFormat: { type: 'volume' },
+                });
+                volumePane.priceScale().applyOptions({
+                    scaleMargins: {
+                        top: 0.9,
+                        bottom: 0,
+                    },
+                });
+                volumeSeries.setData(chartData.volume);
+            }
+
+            // 移動平均線
+            const maLines = [
+                { data: chartData.sma200, color: '#4a90e2', title: 'SMA 200' },
+                { data: chartData.ema200, color: '#f5a623', title: 'EMA 200' },
+                { data: chartData.weekly_sma200, color: '#d0021b', title: 'Weekly SMA 200' }
+            ];
+
+            maLines.forEach(ma => {
+                if (ma.data && ma.data.length > 0) {
+                    const maSeries = chart.addSeries(LightweightCharts.LineSeries, {
+                        color: ma.color,
+                        lineWidth: 2,
+                        title: ma.title,
+                        priceLineVisible: false,
+                        lastValueVisible: false,
+                    });
+                    maSeries.setData(ma.data);
+                }
+            });
+
+            // マーカー（v5の新しい方式）
+            if (chartData.markers && chartData.markers.length > 0) {
+                LightweightCharts.createSeriesMarkers(candleSeries, chartData.markers);
+            }
+
+            // シグナルがある場合、最新シグナルにズーム
+            if (symbolData.signals && symbolData.signals.length > 0) {
+                const latestSignal = symbolData.signals.sort((a, b) => new Date(b.breakout_date) - new Date(a.breakout_date))[0];
+                const signalDate = new Date(latestSignal.breakout_date);
+
+                const userTimezoneOffset = signalDate.getTimezoneOffset() * 60000;
+                const signalTimeUTC = signalDate.getTime() + userTimezoneOffset;
+
+                const fromDate = new Date(signalTimeUTC);
+                fromDate.setMonth(fromDate.getMonth() - 3);
+                const toDate = new Date(signalTimeUTC);
+                toDate.setMonth(toDate.getMonth() + 3);
+
+                const from = fromDate.toISOString().split('T')[0];
+                const to = toDate.toISOString().split('T')[0];
+
+                chart.timeScale().setVisibleRange({ from, to });
+            } else {
+                chart.timeScale().fitContent();
+            }
+
+            new ResizeObserver(entries => {
+                if (entries.length > 0 && entries[0].contentRect.width > 0) {
+                    chart.applyOptions({ width: entries[0].contentRect.width });
+                }
+            }).observe(container);
         }
-    });
-
-    // マーカー（FVGは🐮、ブレイクアウトはマゼンタで"Break"）
-    if (chartData.markers && chartData.markers.length > 0) {
-        LightweightCharts.createSeriesMarkers(candleSeries, chartData.markers);
-    }
-
-    // シグナルがある場合、最新シグナルにズーム
-    if (symbolData.signals && symbolData.signals.length > 0) {
-        // 'YYYY-MM-DD' 形式の日付をソートして最新のものを取得
-        const latestSignal = symbolData.signals.sort((a, b) => new Date(b.signal_date) - new Date(a.signal_date))[0];
-        const signalDate = new Date(latestSignal.signal_date);
-
-        // タイムゾーンオフセットを考慮
-        const userTimezoneOffset = signalDate.getTimezoneOffset() * 60000;
-        const signalTimeUTC = signalDate.getTime() + userTimezoneOffset;
-
-        // 3ヶ月前から3ヶ月後を計算
-        const fromDate = new Date(signalTimeUTC);
-        fromDate.setMonth(fromDate.getMonth() - 3);
-        const toDate = new Date(signalTimeUTC);
-        toDate.setMonth(toDate.getMonth() + 3);
-
-        // lightweight-chartsは'YYYY-MM-DD'形式の文字列を期待
-        const from = fromDate.toISOString().split('T')[0];
-        const to = toDate.toISOString().split('T')[0];
-
-        chart.timeScale().setVisibleRange({ from, to });
-    } else {
-        chart.timeScale().fitContent();
-    }
-
-    new ResizeObserver(entries => {
-        if (entries.length > 0 && entries[0].contentRect.width > 0) {
-            chart.applyOptions({ width: entries[0].contentRect.width });
-        }
-    }).observe(container);
-}
 
         showStatus(message, type = 'info') {
             const statusDiv = document.getElementById('hwb-status');
@@ -749,29 +715,18 @@ renderLightweightChart(container, symbolData, width, height) {
             const container = document.getElementById('hwb-analysis-content');
             if (!container) return;
 
-            // ローディングスピナーをクリア
             container.innerHTML = '';
 
-            // チャートデータがない場合
             if (!symbolData || !symbolData.chart_data || !symbolData.chart_data.candles || symbolData.chart_data.candles.length === 0) {
                 container.innerHTML = `
                     <div class="hwb-analysis-info">
                         <h3>${symbolData.symbol} の分析結果</h3>
                         <p class="info-message">このシンボルはHWB戦略の条件を満たしていません。</p>
-                        <div class="analysis-details">
-                            <h4>トレンドチェック:</h4>
-                            <ul>
-                                <li>週足SMA200上: ${symbolData.trend_check?.weekly_sma200 ? '✅' : '❌'}</li>
-                                <li>日足SMA200上: ${symbolData.trend_check?.daily_sma200 ? '✅' : '❌'}</li>
-                                <li>日足EMA200上: ${symbolData.trend_check?.daily_ema200 ? '✅' : '❌'}</li>
-                            </ul>
-                        </div>
                     </div>
                 `;
                 return;
             }
 
-            // 詳細情報セクションを追加
             const infoSection = document.createElement('div');
             infoSection.className = 'hwb-analysis-info';
             infoSection.innerHTML = `
@@ -790,16 +745,14 @@ renderLightweightChart(container, symbolData, width, height) {
                         <span class="stat-value signal">${symbolData.signals?.length || 0}件</span>
                     </div>
                 </div>
-                <p class="last-updated">最終スキャン: ${symbolData.last_scan || 'N/A'}</p>
+                <p class="last-updated">最終スキャン: ${symbolData.last_updated || 'N/A'}</p>
             `;
             container.appendChild(infoSection);
 
-            // チャートコンテナを作成
             const chartDiv = document.createElement('div');
             chartDiv.className = 'hwb-chart-container-large';
             container.appendChild(chartDiv);
 
-            // チャートを描画
             this.renderLightweightChart(chartDiv, symbolData, 900, 600);
         }
     }
@@ -817,7 +770,6 @@ renderLightweightChart(container, symbolData, width, height) {
         }
 
         async loadData() {
-            // Data is loaded only once
             if (this.summaryData) {
                 return;
             }
@@ -845,7 +797,7 @@ renderLightweightChart(container, symbolData, width, height) {
                 this.showError('分析データが見つかりません。');
                 return;
             }
-            this.container.innerHTML = ''; // Clear loading message
+            this.container.innerHTML = '';
 
             const header = document.createElement('div');
             header.className = 'stage12-header';
@@ -888,7 +840,6 @@ renderLightweightChart(container, symbolData, width, height) {
                     <div class="chart-placeholder">Loading chart...</div>
                 </div>
             `;
-            // Add click listener to load detailed chart
             card.addEventListener('click', () => this.showDetailedView(stock.ticker));
             return card;
         }
@@ -909,7 +860,7 @@ renderLightweightChart(container, symbolData, width, height) {
         }
 
         renderDetailedView(details) {
-            this.container.innerHTML = ''; // Clear view
+            this.container.innerHTML = '';
 
             const detailWrapper = document.createElement('div');
             detailWrapper.className = 'stage-detail-wrapper';
@@ -917,7 +868,7 @@ renderLightweightChart(container, symbolData, width, height) {
             const backButton = document.createElement('button');
             backButton.className = 'stage-detail-back-btn';
             backButton.innerHTML = '&larr; Back to List';
-            backButton.onclick = () => this.render(); // Re-render summary view
+            backButton.onclick = () => this.render();
 
             const header = document.createElement('h2');
             header.textContent = `${details.ticker} - Detailed Analysis`;
@@ -926,7 +877,6 @@ renderLightweightChart(container, symbolData, width, height) {
             this.container.appendChild(header);
             this.container.appendChild(detailWrapper);
 
-            // Layout for chart and info panel
             const chartContainer = document.createElement('div');
             chartContainer.id = 'stage-chart-container';
             chartContainer.className = 'stage-chart-container';
@@ -937,7 +887,6 @@ renderLightweightChart(container, symbolData, width, height) {
             detailWrapper.appendChild(chartContainer);
             detailWrapper.appendChild(infoPanel);
 
-            // Populate the info panel
             infoPanel.innerHTML = `
                 <h4>Analysis Details</h4>
                 <div class="info-item"><span>Ticker:</span> <strong>${details.ticker}</strong></div>
@@ -954,9 +903,7 @@ renderLightweightChart(container, symbolData, width, height) {
                 <div class="info-item"><span>ATR Multiple:</span> <strong>${details.atr_multiple.toFixed(2)}x</strong></div>
             `;
 
-            // Placeholder for the chart rendering call
             if (details.chart_json) {
-                // The actual rendering will be done in the next step
                 this.renderStageChart(chartContainer, details);
             } else {
                 chartContainer.innerHTML = '<p>Chart data not available.</p>';
@@ -970,7 +917,7 @@ renderLightweightChart(container, symbolData, width, height) {
                 return;
             }
             container.innerHTML = '';
-            container.style.position = 'relative'; // Needed for overlay positioning
+            container.style.position = 'relative';
 
             const chart = LightweightCharts.createChart(container, {
                 width: container.clientWidth,
@@ -987,10 +934,15 @@ renderLightweightChart(container, symbolData, width, height) {
             });
             candleSeries.setData(chartData.candles);
 
+            // ボリュームチャート（v5の新しいペイン方式）
             if (chartData.volume && chartData.volume.length > 0) {
                 const volumePane = chart.addPane();
-                const volumeSeries = volumePane.addSeries(LightweightCharts.HistogramSeries, { priceFormat: { type: 'volume' } });
-                volumePane.priceScale().applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
+                const volumeSeries = volumePane.addSeries(LightweightCharts.HistogramSeries, { 
+                    priceFormat: { type: 'volume' } 
+                });
+                volumePane.priceScale().applyOptions({ 
+                    scaleMargins: { top: 0.85, bottom: 0 } 
+                });
                 volumeSeries.setData(chartData.volume);
             }
 
@@ -1010,21 +962,16 @@ renderLightweightChart(container, symbolData, width, height) {
                 }
             });
 
-            // --- Custom Stage Shading Overlay ---
-            // Lightweight Charts does not have a built-in API for vertical region shading.
-            // This custom overlay is a workaround. It's a div positioned directly
-            // on top of the chart. We then programmatically add colored, semi-transparent
-            // divs to it, sized and positioned based on the chart's time-to-pixel coordinates.
-            // The overlay is redrawn on zoom/scroll and resize to stay in sync.
+            // Custom Stage Shading Overlay
             const stageOverlay = document.createElement('div');
             stageOverlay.className = 'stage-overlay';
             container.appendChild(stageOverlay);
 
             const stageColors = {
-                1: 'rgba(38, 166, 154, 0.1)',   // Green
-                2: 'rgba(255, 109, 0, 0.15)',  // Orange
-                3: 'rgba(239, 83, 80, 0.15)',   // Red
-                4: 'rgba(156, 39, 176, 0.1)'   // Purple
+                1: 'rgba(38, 166, 154, 0.1)',
+                2: 'rgba(255, 109, 0, 0.15)',
+                3: 'rgba(239, 83, 80, 0.15)',
+                4: 'rgba(156, 39, 176, 0.1)'
             };
 
             const drawStageOverlays = () => {
@@ -1032,7 +979,6 @@ renderLightweightChart(container, symbolData, width, height) {
                 const timeScale = chart.timeScale();
                 const chartWidth = container.clientWidth;
 
-                // Dynamically find the main price pane's canvas height
                 const mainPane = container.querySelector('tr:first-child .chart-markup-table canvas');
                 if (!mainPane) return;
                 const mainPaneHeight = mainPane.clientHeight;
@@ -1057,12 +1003,12 @@ renderLightweightChart(container, symbolData, width, height) {
                         rect.className = 'stage-rect';
                         rect.style.left = `${left}px`;
                         rect.style.width = `${width}px`;
-                        rect.style.height = `${mainPaneHeight}px`; // Apply dynamic height
+                        rect.style.height = `${mainPaneHeight}px`;
                         rect.style.backgroundColor = stageColors[segment.stage] || 'transparent';
 
                         const label = document.createElement('span');
                         label.className = 'stage-label';
-                        label.textContent = `第${segment.stage}ステージ`; // Localized label
+                        label.textContent = `第${segment.stage}ステージ`;
                         rect.appendChild(label);
 
                         stageOverlay.appendChild(rect);
@@ -1070,12 +1016,10 @@ renderLightweightChart(container, symbolData, width, height) {
                 }
             };
 
-            // Initial draw and subscribe to updates
             chart.timeScale().subscribeVisibleLogicalRangeChange(drawStageOverlays);
             new ResizeObserver(drawStageOverlays).observe(container);
 
             chart.timeScale().fitContent();
-            // A small delay to ensure the chart has rendered before drawing the overlay
             setTimeout(drawStageOverlays, 50);
         }
 
@@ -1092,7 +1036,7 @@ renderLightweightChart(container, symbolData, width, height) {
         }
     }
 
-    // --- Existing rendering functions (unchanged) ---
+    // --- Existing rendering functions ---
     function formatDateForDisplay(dateInput) {
         if (!dateInput) return '';
         try {
@@ -1102,63 +1046,63 @@ renderLightweightChart(container, symbolData, width, height) {
         } catch (e) { return ''; }
     }
 
-function renderLightweightChart(containerId, data, title) {
-    const container = document.getElementById(containerId);
-    if (!container || !data || data.length === 0) {
-        container.innerHTML = `<p>Chart data for ${title} is not available.</p>`;
-        return;
-    }
-    container.innerHTML = '';
-
-    const chart = LightweightCharts.createChart(container, {
-        width: container.clientWidth,
-        height: 300,
-        layout: {
-            backgroundColor: '#ffffff',
-            textColor: '#333333'
-        },
-        grid: {
-            vertLines: { color: '#e1e1e1' },
-            horzLines: { color: '#e1e1e1' }
-        },
-        crosshair: {
-            mode: LightweightCharts.CrosshairMode.Normal
-        },
-        timeScale: {
-            borderColor: '#cccccc',
-            timeVisible: true,
-            secondsVisible: false
-        },
-        handleScroll: false,
-        handleScale: false
-    });
-
-    const candlestickSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
-        upColor: '#26a69a',
-        downColor: '#ef5350',
-        borderDownColor: '#ef5350',
-        borderUpColor: '#26a69a',
-        wickDownColor: '#ef5350',
-        wickUpColor: '#26a69a'
-    });
-
-    const chartData = data.map(item => ({
-        time: (new Date(item.time).getTime() / 1000),
-        open: item.open,
-        high: item.high,
-        low: item.low,
-        close: item.close
-    }));
-
-    candlestickSeries.setData(chartData);
-    chart.timeScale().fitContent();
-
-    new ResizeObserver(entries => {
-        if (entries.length > 0 && entries[0].contentRect.width > 0) {
-            chart.applyOptions({ width: entries[0].contentRect.width });
+    function renderLightweightChart(containerId, data, title) {
+        const container = document.getElementById(containerId);
+        if (!container || !data || data.length === 0) {
+            container.innerHTML = `<p>Chart data for ${title} is not available.</p>`;
+            return;
         }
-    }).observe(container);
-}
+        container.innerHTML = '';
+
+        const chart = LightweightCharts.createChart(container, {
+            width: container.clientWidth,
+            height: 300,
+            layout: {
+                backgroundColor: '#ffffff',
+                textColor: '#333333'
+            },
+            grid: {
+                vertLines: { color: '#e1e1e1' },
+                horzLines: { color: '#e1e1e1' }
+            },
+            crosshair: {
+                mode: LightweightCharts.CrosshairMode.Normal
+            },
+            timeScale: {
+                borderColor: '#cccccc',
+                timeVisible: true,
+                secondsVisible: false
+            },
+            handleScroll: false,
+            handleScale: false
+        });
+
+        const candlestickSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
+            upColor: '#26a69a',
+            downColor: '#ef5350',
+            borderDownColor: '#ef5350',
+            borderUpColor: '#26a69a',
+            wickDownColor: '#ef5350',
+            wickUpColor: '#26a69a'
+        });
+
+        const chartData = data.map(item => ({
+            time: (new Date(item.time).getTime() / 1000),
+            open: item.open,
+            high: item.high,
+            low: item.low,
+            close: item.close
+        }));
+
+        candlestickSeries.setData(chartData);
+        chart.timeScale().fitContent();
+
+        new ResizeObserver(entries => {
+            if (entries.length > 0 && entries[0].contentRect.width > 0) {
+                chart.applyOptions({ width: entries[0].contentRect.width });
+            }
+        }).observe(container);
+    }
 
     function renderMarketOverview(container, marketData, lastUpdated) {
         if (!container) return;
@@ -1306,7 +1250,7 @@ function renderLightweightChart(containerId, data, title) {
         renderColumn(document.getElementById('column-content'), data.column);
     }
 
-    // --- Swipe Navigation (unchanged) ---
+    // --- Swipe Navigation ---
     function initSwipeNavigation() {
         const contentArea = document.getElementById('dashboard-content');
         let touchstartX = 0;
@@ -1347,7 +1291,7 @@ function renderLightweightChart(containerId, data, title) {
         }, { passive: true });
     }
 
-    // --- Auto Reload Function (unchanged) ---
+    // --- Auto Reload Function ---
     function setupAutoReload() {
         const LAST_RELOAD_KEY = 'lastAutoReloadDate';
         setInterval(() => {
@@ -1374,7 +1318,7 @@ function renderLightweightChart(containerId, data, title) {
     setupAutoReload();
 });
 
-// --- NotificationManager (unchanged) ---
+// --- NotificationManager ---
 class NotificationManager {
     constructor() {
         this.isSupported = 'Notification' in window && 'serviceWorker' in navigator && 'PushManager' in window;
