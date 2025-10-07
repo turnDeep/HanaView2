@@ -1276,8 +1276,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const touchendX = e.changedTouches[0].screenX;
             const deltaX = touchendX - touchstartX;
             if (Math.abs(deltaX) > horizontalSwipeThreshold) {
-                const tabButtons = Array.from(document.querySelectorAll('.tab-button'));
+                const tabButtons = Array.from(document.querySelectorAll('.tab-button'))
+                    .filter(btn => btn.style.display !== 'none');
                 const currentIndex = tabButtons.findIndex(b => b.classList.contains('active'));
+
+                if (currentIndex === -1) return; // Active tab not found among visible tabs
+
                 let nextIndex = (deltaX > 0) ? currentIndex - 1 : currentIndex + 1;
                 if (nextIndex < 0) {
                     nextIndex = tabButtons.length - 1;
