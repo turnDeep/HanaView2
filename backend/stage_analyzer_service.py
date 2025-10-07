@@ -253,6 +253,72 @@ class StageAnalyzerService:
         self.data_dir = data_dir
         self.stage_data_dir = os.path.join(self.data_dir, 'stage')
         os.makedirs(self.stage_data_dir, exist_ok=True)
+        # stock.csvのパスを設定
+        self.stock_csv_path = os.path.join(os.path.dirname(__file__), '..', 'stock.csv')
+
+    def update_ticker_list(self) -> bool:
+        """
+        NASDAQとNYSEからティッカーリストを取得し、stock.csvを更新する
+        """
+        logger.info("📡 Fetching ticker lists from NASDAQ and NYSE...")
+        
+        nasdaq_url = "https://datahub.io/core/nasdaq-listings/_r/-/data/nasdaq-listed-symbols.csv"
+        nyse_url = "https://datahub.io/core/nyse-other-listings/_r/-/data/nyse-listed.csv"
+
+        try:
+            # 1. NASDAQティッカーを取得
+            logger.info(f"Downloading NASDAQ tickers from: {nasdaq_url}")
+            nasdaq_df = pd.read_csv(nasdaq_url)
+            nasdaq_df.dropna(subset=['Symbol'], inplace=True)
+            nasdaq_tickers = nasdaq_df['Symbol'].astype(str).tolist()
+            logger.info(f"✓ Found {len(nasdaq_tickers)} NASDAQ tickers")
+
+            # 2. NYSEティッカーを取得
+            logger.info(f"Downloading NYSE tickers from: {nyse_url}")
+            nyse_df = pd.read_csv(nyse_url)
+            nyse_df.dropna(subset=['ACT Symbol'], inplace=True)
+            nyse_tickers = nyse_df['ACT Symbol'].astype(str).tolist()
+            logger.info(f"✓ Found {len(nyse_tickers)} NYSE tickers")
+
+        except Exception as e:
+            logger.error(f"Failed to download ticker lists: {e}")
+            return False
+
+        # 3. リストを結合し、重複を排除
+        all_tickers = nasdaq_tickers + nyse_tickers
+        unique_tickers = sorted(list(set(all_tickers)))
+        logger.info(f"✓ Total unique tickers: {len(unique_tickers)}")
+
+        # 4. フィルタリング条件
+        excluded_suffixes = ['.U', '.W', '.A', '.B']
+        initial_count = len(unique_tickers)
+
+        # 条件①: 文字数が5文字のティッカーを除外
+        filtered_tickers = [t for t in unique_tickers if len(t) != 5]
+        logger.info(f"✓ Excluded {initial_count - len(filtered_tickers)} tickers with 5 characters")
+        initial_count = len(filtered_tickers)
+
+        # 条件②: 特定の接尾辞を除外
+        filtered_tickers = [t for t in filtered_tickers if not any(s in t for s in excluded_suffixes)]
+        logger.info(f"✓ Excluded {initial_count - len(filtered_tickers)} tickers with special suffixes")
+        initial_count = len(filtered_tickers)
+
+        # 条件③: $を含むティッカーを除外
+        filtered_tickers = [t for t in filtered_tickers if '$' not in t]
+        logger.info(f"✓ Excluded {initial_count - len(filtered_tickers)} tickers containing '$'")
+
+        logger.info(f"📊 Final ticker count: {len(filtered_tickers)}")
+
+        # 5. stock.csvに保存
+        try:
+            with open(self.stock_csv_path, 'w', encoding='utf-8') as f:
+                for ticker in filtered_tickers:
+                    f.write(f"{ticker}\n")
+            logger.info(f"✅ Successfully saved {len(filtered_tickers)} tickers to {self.stock_csv_path}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to write to stock.csv: {e}")
+            return False
 
     def _find_stage_history(self, ticker: str, stock_indicators: pd.DataFrame,
                               benchmark_indicators: pd.DataFrame) -> List[Dict]:
@@ -388,16 +454,25 @@ class StageAnalyzerService:
         """Runs the full analysis pipeline for all tickers."""
         logger.info("🚀 Starting full stage analysis pipeline...")
 
-        # In a real scenario, fetch tickers from a reliable source. Using a static file for now.
-        ticker_file = os.path.join(os.path.dirname(__file__), 'russell3000.csv')
+        # stock.csvからティッカーを読み込む
         try:
-            tickers_df = pd.read_csv(ticker_file)
-            tickers = tickers_df['ticker'].tolist()
+            tickers_df = pd.read_csv(self.stock_csv_path, header=None, names=['ticker'], encoding='utf-8-sig')
+            tickers = tickers_df['ticker'].dropna().str.strip().tolist()
+            logger.info(f"✓ Successfully loaded {len(tickers)} tickers from {self.stock_csv_path}")
+        except FileNotFoundError:
+            logger.error(f"Ticker file not found at: {self.stock_csv_path}")
+            return {"status": "error", "message": "Ticker file not found."}
         except Exception as e:
             logger.error(f"Could not read ticker file: {e}")
-            return {"status": "error", "message": "Ticker file not found."}
+            return {"status": "error", "message": f"Failed to read ticker file: {str(e)}"}
 
-        if max_tickers: tickers = tickers[:max_tickers]
+        if not tickers:
+            logger.error("No tickers found in the file.")
+            return {"status": "error", "message": "No tickers found."}
+
+        if max_tickers: 
+            tickers = tickers[:max_tickers]
+            logger.info(f"✓ Limited to first {max_tickers} tickers for analysis")
 
         logger.info(f"Analyzing {len(tickers)} tickers with {max_workers} workers...")
         _, benchmark_df = fetch_stock_data("SPY", period="2y")
@@ -436,7 +511,7 @@ class StageAnalyzerService:
         try:
             with open(summary_path, 'w', encoding='utf-8') as f:
                 json.dump(summary_data, f, indent=2)
-            logger.info(f"Successfully saved summary to {summary_path}")
+            logger.info(f"✅ Successfully saved summary to {summary_path}")
         except Exception as e:
             logger.error(f"Failed to save summary file: {e}")
 
