@@ -34,6 +34,11 @@ def main():
     """Main function to parse arguments and run the analysis."""
     parser = argparse.ArgumentParser(description='Stage Analysis CLI for HanaView')
     parser.add_argument(
+        '--update-tickers',
+        action='store_true',
+        help='Update the ticker list from NASDAQ and NYSE before running analysis'
+    )
+    parser.add_argument(
         '--max-tickers',
         type=int,
         default=None,
@@ -48,9 +53,23 @@ def main():
     args = parser.parse_args()
 
     logger.info("=" * 70)
-    logger.info("🚀 Triggering Stage Analysis Pipeline via CLI")
-    logger.info(f"Max Tickers: {'All' if args.max_tickers is None else args.max_tickers}")
-    logger.info(f"Max Workers: {args.workers}")
+    logger.info("🚀 Stage Analysis Pipeline - HanaView")
+    logger.info("=" * 70)
+
+    # ティッカーリストの更新が必要な場合
+    if args.update_tickers:
+        logger.info("📡 Updating ticker list from NASDAQ and NYSE...")
+        success = stage_analyzer_service.update_ticker_list()
+        if not success:
+            logger.error("❌ Failed to update ticker list. Exiting.")
+            sys.exit(1)
+        logger.info("✅ Ticker list updated successfully")
+        logger.info("-" * 70)
+
+    # 分析の実行
+    logger.info(f"📊 Analysis Configuration:")
+    logger.info(f"  Max Tickers: {'All' if args.max_tickers is None else args.max_tickers}")
+    logger.info(f"  Max Workers: {args.workers}")
     logger.info("=" * 70)
 
     try:
@@ -60,7 +79,7 @@ def main():
         )
         logger.info("-" * 70)
         logger.info(f"✅ Pipeline finished with status: {result.get('status')}")
-        logger.info(f"Found {result.get('found', 0)} promising stocks.")
+        logger.info(f"📈 Found {result.get('found', 0)} promising stocks (Stage 1 or 2).")
         logger.info("=" * 70)
 
     except Exception as e:
