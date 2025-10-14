@@ -945,7 +945,13 @@ async def run_hwb_scan(progress_callback=None):
     """スキャン実行エントリーポイント"""
     scanner = HWBScanner()
     summary = await scanner.scan_all_symbols(progress_callback)
-    logger.info(f"完了 - シグナル: {summary['summary']['signals_count']}, 候補: {summary['summary']['candidates_count']}")
+    
+    # 修正：正しいキー名を使用
+    logger.info(
+        f"完了 - 当日: {summary['summary']['signals_today_count']}, "
+        f"直近: {summary['summary']['signals_recent_count']}, "
+        f"監視: {summary['summary']['candidates_count']}"
+    )
     return summary
 
 
