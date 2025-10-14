@@ -34,7 +34,6 @@ COPY start.sh /app/start.sh
 RUN chmod +x /app/start.sh
 RUN chmod +x /app/backend/run_job.sh
 RUN chmod +x /app/backend/cron_job_hwb.sh
-RUN chmod +x /app/backend/cron_job_stage.sh
 
 # Add cron job with explicit timezone
 # Important: Include TZ in the crontab itself
@@ -45,8 +44,7 @@ RUN ( \
     echo "" ; \
     echo "15 6 * * 1-5 . /app/backend/cron-env.sh && /app/backend/run_job.sh fetch >> /app/logs/cron_error.log 2>&1" ; \
     echo "28 6 * * 1-5 . /app/backend/cron-env.sh && /app/backend/run_job.sh generate >> /app/logs/cron_error.log 2>&1" ; \
-    echo "35 6 * * 1-5 . /app/backend/cron-env.sh && /app/backend/cron_job_hwb.sh >> /app/logs/cron_error.log 2>&1" ; \
-    echo "0 8 * * 1-5 . /app/backend/cron-env.sh && /app/backend/cron_job_stage.sh >> /app/logs/cron_error.log 2>&1" \
+    echo "35 6 * * 1-5 . /app/backend/cron-env.sh && /app/backend/cron_job_hwb.sh >> /app/logs/cron_error.log 2>&1" \
 ) | crontab -
 
 # Create logs directory
