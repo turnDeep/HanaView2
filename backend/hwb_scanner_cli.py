@@ -34,7 +34,7 @@ async def main():
             fetcher = MarketDataFetcher()
             
             notification_data = {
-                "title": "HWBスキャン完了",
+                "title": "200MAスキャン完了",
                 "body": f"当日: {signals_today_count}件 | 直近: {signals_recent_count}件 | 監視: {candidates_count}件",
                 "type": "hwb-scan"
             }
