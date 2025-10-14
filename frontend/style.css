@@ -932,27 +932,7 @@ body {
     color: var(--text-primary);
 }
 
-.hwb-chart-score {
-    padding: 4px 12px;
-    border-radius: 15px;
-    font-weight: 600;
-    font-size: 0.9em;
-}
-
-.hwb-chart-score.high {
-    background-color: #28a745;
-    color: white;
-}
-
-.hwb-chart-score.medium {
-    background-color: #ffc107;
-    color: #333;
-}
-
-.hwb-chart-score.low {
-    background-color: #6c757d;
-    color: white;
-}
+/* スコアバッジ関連のスタイルは削除されました */
 
 .hwb-chart-info {
     display: flex;
@@ -1047,6 +1027,13 @@ body {
     color: white;
 }
 
+/* 監視銘柄用の新しいバッジスタイル */
+.badge-candidate {
+    background-color: #17a2b8;
+    color: white;
+}
+
+/* 以下のスコア関連バッジは使用されなくなったが、互換性のため残す */
 .badge-high {
     background-color: #28a745;
     color: white;
