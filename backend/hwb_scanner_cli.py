@@ -11,27 +11,31 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
-# backend/hwb_scanner_cli.py
 async def main():
     """メイン実行関数"""
     print("HWBスキャン開始...")
 
     try:
         result = await run_hwb_scan()
-        signals_count = result['summary']['signals_count']
+        
+        # 正しいキー名を使用
+        signals_today_count = result['summary']['signals_today_count']
+        signals_recent_count = result['summary']['signals_recent_count']
         candidates_count = result['summary']['candidates_count']
         
-        print(f"スキャン完了: {signals_count}件のシグナル検出")
+        print(f"スキャン完了:")
+        print(f"  🚀 当日ブレイクアウト: {signals_today_count}件")
+        print(f"  📈 直近5営業日以内: {signals_recent_count}件")
+        print(f"  📍 監視銘柄: {candidates_count}件")
         
-        # Push通知送信を追加
+        # Push通知送信
         try:
             from .data_fetcher import MarketDataFetcher
             fetcher = MarketDataFetcher()
             
-            # 通知データをカスタマイズ
             notification_data = {
                 "title": "HWBスキャン完了",
-                "body": f"シグナル: {signals_count}件 | 候補: {candidates_count}件",
+                "body": f"当日: {signals_today_count}件 | 直近: {signals_recent_count}件 | 監視: {candidates_count}件",
                 "type": "hwb-scan"
             }
             
@@ -44,6 +48,8 @@ async def main():
 
     except Exception as e:
         print(f"エラー: {e}")
+        import traceback
+        traceback.print_exc()
         return 1
 
 if __name__ == "__main__":
