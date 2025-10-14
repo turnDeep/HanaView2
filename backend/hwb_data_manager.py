@@ -11,6 +11,7 @@ from curl_cffi import requests
 from typing import Tuple, Dict, Optional, Set
 from io import StringIO
 from bs4 import BeautifulSoup
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,7 @@ class HWBDataManager:
         self.symbols_dir.mkdir(exist_ok=True)
         self.daily_dir.mkdir(exist_ok=True)
         self.session = requests.Session(impersonate="safari15_5")
+        self.db_lock = threading.Lock()
         logger.info(f"HWBDataManager initialized. DB path: {self.db_path}")
         self._init_database()
 
@@ -57,44 +59,45 @@ class HWBDataManager:
         """
         logger.info("Initializing database schema...")
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                # Daily prices table
-                cursor.execute("""
-                CREATE TABLE IF NOT EXISTS daily_prices (
-                    symbol TEXT NOT NULL,
-                    date DATE NOT NULL,
-                    open REAL NOT NULL, high REAL NOT NULL, low REAL NOT NULL, close REAL NOT NULL, volume INTEGER NOT NULL,
-                    sma200 REAL, ema200 REAL,
-                    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (symbol, date)
-                );
-                """)
-                # Weekly prices table
-                cursor.execute("""
-                CREATE TABLE IF NOT EXISTS weekly_prices (
-                    symbol TEXT NOT NULL,
-                    week_start_date DATE NOT NULL,
-                    open REAL NOT NULL, high REAL NOT NULL, low REAL NOT NULL, close REAL NOT NULL, volume INTEGER NOT NULL,
-                    sma200 REAL,
-                    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (symbol, week_start_date)
-                );
-                """)
-                # Data metadata table
-                cursor.execute("""
-                CREATE TABLE IF NOT EXISTS data_metadata (
-                    symbol TEXT PRIMARY KEY,
-                    first_date DATE, last_date DATE, last_updated TIMESTAMP,
-                    daily_count INTEGER, weekly_count INTEGER
-                );
-                """)
-                # Indexes
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_daily_symbol_date ON daily_prices(symbol, date DESC);")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_weekly_symbol_date ON weekly_prices(symbol, week_start_date DESC);")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_metadata_last_date ON data_metadata(last_date);")
-                conn.commit()
-                logger.info("Database schema initialized successfully.")
+            with self.db_lock:
+                with sqlite3.connect(self.db_path, timeout=30) as conn:
+                    cursor = conn.cursor()
+                    # Daily prices table
+                    cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS daily_prices (
+                        symbol TEXT NOT NULL,
+                        date DATE NOT NULL,
+                        open REAL NOT NULL, high REAL NOT NULL, low REAL NOT NULL, close REAL NOT NULL, volume INTEGER NOT NULL,
+                        sma200 REAL, ema200 REAL,
+                        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY (symbol, date)
+                    );
+                    """)
+                    # Weekly prices table
+                    cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS weekly_prices (
+                        symbol TEXT NOT NULL,
+                        week_start_date DATE NOT NULL,
+                        open REAL NOT NULL, high REAL NOT NULL, low REAL NOT NULL, close REAL NOT NULL, volume INTEGER NOT NULL,
+                        sma200 REAL,
+                        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY (symbol, week_start_date)
+                    );
+                    """)
+                    # Data metadata table
+                    cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS data_metadata (
+                        symbol TEXT PRIMARY KEY,
+                        first_date DATE, last_date DATE, last_updated TIMESTAMP,
+                        daily_count INTEGER, weekly_count INTEGER
+                    );
+                    """)
+                    # Indexes
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_daily_symbol_date ON daily_prices(symbol, date DESC);")
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_weekly_symbol_date ON weekly_prices(symbol, week_start_date DESC);")
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_metadata_last_date ON data_metadata(last_date);")
+                    conn.commit()
+                    logger.info("Database schema initialized successfully.")
         except sqlite3.Error as e:
             logger.error(f"Database initialization failed: {e}", exc_info=True)
             raise
@@ -107,47 +110,55 @@ class HWBDataManager:
         Returns a tuple of (daily_df, weekly_df), or None if data cannot be retrieved.
         """
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                metadata = self._get_metadata(symbol, conn)
-                today = datetime.now().date()
-                needs_update = False
-
-                if not metadata:
-                    logger.info(f"'{symbol}': First time fetch. Getting full history.")
-                    needs_update = True
-                    start_date = today - timedelta(days=365 * lookback_years)
-                elif metadata['last_date'] < today:
-                    logger.info(f"'{symbol}': Cache is outdated (last: {metadata['last_date']}). Fetching delta.")
-                    needs_update = True
-                    start_date = metadata['last_date'] + timedelta(days=1)
-                else:
-                    logger.info(f"'{symbol}': Cache is up-to-date.")
-
-                if needs_update:
-                    df_new_daily, df_new_weekly = self._fetch_from_yfinance(symbol, start_date, today)
-
-                    if (df_new_daily is not None and not df_new_daily.empty) or \
-                       (df_new_weekly is not None and not df_new_weekly.empty):
-
-                        df_old_daily = self._load_daily_from_db(symbol, conn, lookback_days=365*lookback_years)
-                        df_old_weekly = self._load_weekly_from_db(symbol, conn, lookback_weeks=52*lookback_years)
-
-                        df_full_daily = self._calculate_full_daily_ma(df_old_daily, df_new_daily)
-                        df_full_weekly = self._calculate_full_weekly_ma(df_old_weekly, df_new_weekly)
-
-                        self._save_to_db(symbol, conn, df_full_daily, df_full_weekly)
-                        self._update_metadata(symbol, conn)
+            # --- Step 1: Check metadata (inside a lock) ---
+            needs_update = False
+            start_date = None
+            with self.db_lock:
+                with sqlite3.connect(self.db_path, timeout=30) as conn:
+                    metadata = self._get_metadata(symbol, conn)
+                    today = datetime.now().date()
+                    if not metadata:
+                        logger.info(f"'{symbol}': First time fetch. Getting full history.")
+                        needs_update = True
+                        start_date = today - timedelta(days=365 * lookback_years)
+                    elif metadata['last_date'] < today:
+                        logger.info(f"'{symbol}': Cache is outdated (last: {metadata['last_date']}). Fetching delta.")
+                        needs_update = True
+                        start_date = metadata['last_date'] + timedelta(days=1)
                     else:
-                        logger.info(f"'{symbol}': No new data returned from yfinance.")
+                        logger.info(f"'{symbol}': Cache is up-to-date.")
 
-                final_df_daily = self._load_daily_from_db(symbol, conn, lookback_days=365 * lookback_years)
-                final_df_weekly = self._load_weekly_from_db(symbol, conn, lookback_weeks=52 * lookback_years)
+            # --- Step 2: Fetch new data if needed (outside the lock) ---
+            if needs_update:
+                df_new_daily, df_new_weekly = self._fetch_from_yfinance(symbol, start_date, datetime.now().date())
 
-                if final_df_daily.empty:
-                    logger.warning(f"'{symbol}': No data available after fetch/load process.")
-                    return None
+                # --- Step 3: Save new data (inside a lock) ---
+                if (df_new_daily is not None and not df_new_daily.empty) or \
+                   (df_new_weekly is not None and not df_new_weekly.empty):
+                    with self.db_lock:
+                        with sqlite3.connect(self.db_path, timeout=30) as conn:
+                            df_old_daily = self._load_daily_from_db(symbol, conn, lookback_days=365*lookback_years)
+                            df_old_weekly = self._load_weekly_from_db(symbol, conn, lookback_weeks=52*lookback_years)
 
-                return final_df_daily, final_df_weekly
+                            df_full_daily = self._calculate_full_daily_ma(df_old_daily, df_new_daily)
+                            df_full_weekly = self._calculate_full_weekly_ma(df_old_weekly, df_new_weekly)
+
+                            self._save_to_db(symbol, conn, df_full_daily, df_full_weekly)
+                            self._update_metadata(symbol, conn)
+                else:
+                    logger.info(f"'{symbol}': No new data returned from yfinance.")
+
+            # --- Step 4: Load final data from DB (inside a lock) ---
+            with self.db_lock:
+                 with sqlite3.connect(self.db_path, timeout=30) as conn:
+                    final_df_daily = self._load_daily_from_db(symbol, conn, lookback_days=365 * lookback_years)
+                    final_df_weekly = self._load_weekly_from_db(symbol, conn, lookback_weeks=52 * lookback_years)
+
+            if final_df_daily.empty:
+                logger.warning(f"'{symbol}': No data available after fetch/load process.")
+                return None
+
+            return final_df_daily, final_df_weekly
         except Exception as e:
             logger.error(f"Error in get_stock_data_with_cache for '{symbol}': {e}", exc_info=True)
             return None
