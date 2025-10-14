@@ -442,7 +442,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     item.className = 'hwb-symbol-item';
                     item.innerHTML = `
                         <span class="hwb-symbol-name">${ticker}</span>
-                        <span class="hwb-symbol-badge">ブレイクアウト</span>
+                        <span class="hwb-symbol-badge badge-signal">ブレイクアウト</span>
                     `;
                     list.appendChild(item);
                 });
@@ -568,8 +568,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     badgeClass = 'badge-signal';
                     dateInfo = item.signal_date;
                 } else {
-                    badgeText = `Score: ${item.score}/10`;
-                    badgeClass = item.score >= 8 ? 'badge-high' : item.score >= 5 ? 'badge-medium' : 'badge-low';
+                    // スコアリング削除：シンプルなFVGバッジに変更
+                    badgeText = 'FVG';
+                    badgeClass = 'badge-candidate';
                     dateInfo = item.fvg_date;
                 }
 
