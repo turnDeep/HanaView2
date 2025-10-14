@@ -359,7 +359,7 @@ async def trigger_hwb_scan(current_user: str = Depends(get_current_user)):
 
         return {
             "success": True,
-            "message": f"スキャン完了: {result['summary']['today_signals']}件のシグナル検出",
+            "message": f"スキャン完了: {result['summary']['signals_today_count']}件のシグナル検出",
             "scan_date": result['scan_date'],
             "scan_time": result['scan_time']
         }

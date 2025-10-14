@@ -1596,7 +1596,7 @@ class MarketDataFetcher:
             for sub_id, subscription in list(subscriptions.items()):
                 permission = subscription.get("permission", "standard")
 
-                if is_hwb_scan_notification and permission != "secret":
+                if is_hwb_scan_notification and permission not in ["secret", "ura"]:
                     logger.info(f"Skipping HWB notification for {sub_id} due to '{permission}' permission.")
                     continue
 
