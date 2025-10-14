@@ -303,7 +303,7 @@ document.addEventListener('DOMContentLoaded', () => {
     class HWB200MAManager {
         constructor() {
             this.summaryData = null;
-            this.currentView = 'summary'; // 'summary' or 'search'
+            this.currentView = 'summary';
             this.initEventListeners();
         }
 
@@ -317,12 +317,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         this.searchTicker();
                     }
                 });
-            }
-
-            const contentDiv = document.getElementById('hwb-content');
-            if (contentDiv) {
-                // 詳細分析ボタンのイベントリスナーを削除
-                // チャートカードのクリックイベントのみ（不要なら削除）
             }
         }
 
@@ -350,11 +344,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const symbolData = await response.json();
 
-                // サマリー表示エリアに検索結果を表示
                 this.currentView = 'search';
                 this.renderSearchResults(ticker, symbolData);
 
-                // ボタンをリセット状態に変更
                 const searchBtn = document.getElementById('hwb-analyze-btn');
                 if (searchBtn) {
                     searchBtn.textContent = 'リセット';
@@ -380,13 +372,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 searchBtn.dataset.state = 'search';
             }
 
-            // サマリーを再表示
             this.render();
 
             const { updated_at, summary } = this.summaryData;
             const displayDate = updated_at ? formatDateForDisplay(updated_at) : this.summaryData.scan_date;
+            
+            const todayCount = summary.signals_today?.length || 0;
+            const recentCount = summary.signals_recent?.length || 0;
+            const candidatesCount = summary.candidates?.length || 0;
+            
             this.showStatus(
-                `最終更新: ${displayDate} | 当日: ${summary.signals_today_count} | 直近: ${summary.signals_recent_count} | 監視: ${summary.candidates_count}`,
+                `最終更新: ${displayDate} | 当日: ${todayCount} | 直近: ${recentCount} | 監視: ${candidatesCount}`,
                 'info'
             );
         }
@@ -421,7 +417,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 signalsByDate[date].push(signal);
             });
 
-            // サマリー形式で表示
             resultDiv.innerHTML = `
                 <div class="hwb-summary">
                     <h2>${ticker} の検索結果</h2>
@@ -439,41 +434,24 @@ document.addEventListener('DOMContentLoaded', () => {
                 section.className = 'hwb-charts-section';
                 section.innerHTML = `<h2>📅 ${date}</h2>`;
 
-                const grid = document.createElement('div');
-                grid.className = 'hwb-chart-grid';
+                const list = document.createElement('div');
+                list.className = 'hwb-symbol-list';
 
                 signalsByDate[date].forEach(signal => {
-                    const card = this.createSearchResultCard(ticker, signal);
-                    grid.appendChild(card);
-                    this.loadSymbolChart(card);
+                    const item = document.createElement('div');
+                    item.className = 'hwb-symbol-item';
+                    item.innerHTML = `
+                        <span class="hwb-symbol-name">${ticker}</span>
+                        <span class="hwb-symbol-badge">ブレイクアウト</span>
+                    `;
+                    list.appendChild(item);
                 });
 
-                section.appendChild(grid);
+                section.appendChild(list);
                 resultDiv.appendChild(section);
             });
 
             container.appendChild(resultDiv);
-        }
-
-        createSearchResultCard(ticker, signal) {
-            const card = document.createElement('div');
-            card.className = 'hwb-chart-card';
-            card.dataset.symbol = ticker;
-
-            card.innerHTML = `
-                <div class="hwb-chart-header">
-                    <span class="hwb-chart-symbol">${ticker}</span>
-                    <span class="hwb-chart-score high">ブレイクアウト</span>
-                </div>
-                <div class="hwb-chart-info">
-                    <span>📅 ${signal.breakout_date}</span>
-                </div>
-                <div class="hwb-chart-placeholder">
-                    <div class="loading-spinner-small"></div>
-                    <p>チャートを読込中...</p>
-                </div>
-            `;
-            return card;
         }
 
         async loadData() {
@@ -497,8 +475,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const { updated_at, summary } = this.summaryData;
                 const displayDate = updated_at ? formatDateForDisplay(updated_at) : this.summaryData.scan_date;
+                
+                const todayCount = summary.signals_today?.length || 0;
+                const recentCount = summary.signals_recent?.length || 0;
+                const candidatesCount = summary.candidates?.length || 0;
+                
                 this.showStatus(
-                    `最終更新: ${displayDate} | 当日: ${summary.signals_today_count} | 直近: ${summary.signals_recent_count} | 監視: ${summary.candidates_count}`,
+                    `最終更新: ${displayDate} | 当日: ${todayCount} | 直近: ${recentCount} | 監視: ${candidatesCount}`,
                     'info'
                 );
 
@@ -523,6 +506,10 @@ document.addEventListener('DOMContentLoaded', () => {
             summaryDiv.className = 'hwb-summary';
             const displayDate = updated_at ? formatDateForDisplay(updated_at) : `${scan_date} ${scan_time}`;
 
+            const todayCount = summary.signals_today?.length || 0;
+            const recentCount = summary.signals_recent?.length || 0;
+            const candidatesCount = summary.candidates?.length || 0;
+
             summaryDiv.innerHTML = `
                 <h2>200MAシステム</h2>
                 <div class="scan-info">
@@ -531,15 +518,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="hwb-summary-grid">
                     <div>
                         <h3>🚀 当日ブレイクアウト</h3>
-                        <p class="summary-count">${summary.signals_today_count}</p>
+                        <p class="summary-count">${todayCount}</p>
                     </div>
                     <div>
                         <h3>📈 直近5営業日</h3>
-                        <p class="summary-count">${summary.signals_recent_count}</p>
+                        <p class="summary-count">${recentCount}</p>
                     </div>
                     <div>
                         <h3>📍 監視銘柄</h3>
-                        <p class="summary-count">${summary.candidates_count}</p>
+                        <p class="summary-count">${candidatesCount}</p>
                     </div>
                 </div>
             `;
@@ -550,185 +537,52 @@ document.addEventListener('DOMContentLoaded', () => {
             const { signals_today = [], signals_recent = [], candidates = [] } = this.summaryData.summary;
 
             if (signals_today.length > 0) {
-                this.renderSection(container, '🚀 当日ブレイクアウト', signals_today, 'signal_today');
+                this.renderSymbolList(container, '🚀 当日ブレイクアウト', signals_today, 'signal_today');
             }
             if (signals_recent.length > 0) {
-                this.renderSection(container, '📈 直近5営業日以内', signals_recent, 'signal_recent');
+                this.renderSymbolList(container, '📈 直近5営業日以内', signals_recent, 'signal_recent');
             }
             if (candidates.length > 0) {
-                this.renderSection(container, '📍 監視銘柄', candidates, 'candidate');
+                this.renderSymbolList(container, '📍 監視銘柄', candidates, 'candidate');
             }
         }
 
-        async renderSection(container, title, items, type) {
+        renderSymbolList(container, title, items, type) {
             const section = document.createElement('div');
-            section.className = 'hwb-charts-section';
+            section.className = 'hwb-symbol-section';
             section.innerHTML = `<h2>${title}</h2>`;
 
-            const grid = document.createElement('div');
-            grid.className = 'hwb-chart-grid';
+            const list = document.createElement('div');
+            list.className = 'hwb-symbol-list';
 
-            const cards = items.map(item => {
-                const card = this.createPlaceholderCard(item, type);
-                grid.appendChild(card);
-                return card;
+            items.forEach(item => {
+                const symbolItem = document.createElement('div');
+                symbolItem.className = 'hwb-symbol-item';
+
+                let badgeText = '';
+                let badgeClass = '';
+                let dateInfo = '';
+
+                if (type === 'signal_today' || type === 'signal_recent') {
+                    badgeText = 'ブレイクアウト';
+                    badgeClass = 'badge-signal';
+                    dateInfo = item.signal_date;
+                } else {
+                    badgeText = `Score: ${item.score}/10`;
+                    badgeClass = item.score >= 8 ? 'badge-high' : item.score >= 5 ? 'badge-medium' : 'badge-low';
+                    dateInfo = item.fvg_date;
+                }
+
+                symbolItem.innerHTML = `
+                    <span class="hwb-symbol-name">${item.symbol}</span>
+                    <span class="hwb-symbol-badge ${badgeClass}">${badgeText}</span>
+                    <span class="hwb-symbol-date">${dateInfo}</span>
+                `;
+                list.appendChild(symbolItem);
             });
 
-            section.appendChild(grid);
+            section.appendChild(list);
             container.appendChild(section);
-
-            for (const card of cards) {
-                await this.loadSymbolChart(card);
-            }
-        }
-
-        createPlaceholderCard(item, type) {
-            const card = document.createElement('div');
-            card.className = 'hwb-chart-card';
-            card.dataset.symbol = item.symbol;
-
-            let signalInfo = '';
-            if (type === 'signal_today' || type === 'signal_recent') {
-                signalInfo = `ブレイクアウト: ${item.signal_date}`;
-            } else {
-                signalInfo = `FVG検出: ${item.fvg_date}`;
-            }
-
-            const scoreHTML = (type === 'candidate')
-                ? `<span class="hwb-chart-score ${item.score >= 8 ? 'high' : item.score >= 5 ? 'medium' : 'low'}">Score: ${item.score}/10</span>`
-                : '<span class="hwb-chart-score high">シグナル</span>';
-
-            card.innerHTML = `
-                <div class="hwb-chart-header">
-                    <span class="hwb-chart-symbol">${item.symbol}</span>
-                    ${scoreHTML}
-                </div>
-                <div class="hwb-chart-info">
-                    <span>${signalInfo}</span>
-                </div>
-                <div class="hwb-chart-placeholder">
-                    <div class="loading-spinner-small"></div>
-                    <p>チャートを読込中...</p>
-                </div>
-            `;
-            return card;
-        }
-
-        async loadSymbolChart(card) {
-            const symbol = card.dataset.symbol;
-            card.dataset.chartLoaded = 'loading';
-
-            const placeholder = card.querySelector('.hwb-chart-placeholder');
-            placeholder.innerHTML = `<div class="loading-spinner-small"></div><p>チャートデータを読込中...</p>`;
-
-            try {
-                const response = await fetchWithAuth(`/api/hwb/symbols/${symbol}`);
-                if (!response.ok) throw new Error(`Failed to load data for ${symbol}`);
-
-                const symbolData = await response.json();
-
-                placeholder.style.display = 'none';
-
-                const chartContainer = document.createElement('div');
-                chartContainer.className = 'hwb-chart-container';
-                card.appendChild(chartContainer);
-
-                this.renderLightweightChart(chartContainer, symbolData);
-
-                card.dataset.chartLoaded = 'true';
-
-            } catch (error) {
-                console.error(`Error loading chart for ${symbol}:`, error);
-                placeholder.innerHTML = `<p class="error-text">❌ チャート読込失敗</p>`;
-                card.dataset.chartLoaded = 'error';
-            }
-        }
-
-        renderLightweightChart(container, symbolData) {
-            // 既存のチャート描画ロジックをそのまま使用
-            const chartData = symbolData.chart_data;
-
-            if (!container || !chartData || !chartData.candles || chartData.candles.length === 0) {
-                container.innerHTML = '<p>Chart data is not available.</p>';
-                return;
-            }
-
-            const chart = LightweightCharts.createChart(container, {
-                width: container.clientWidth,
-                height: 300,
-                layout: { backgroundColor: '#ffffff', textColor: '#333' },
-                grid: { vertLines: { color: '#e1e1e1' }, horzLines: { color: '#e1e1e1' } },
-                timeScale: { borderColor: '#cccccc', timeVisible: true },
-            });
-
-            const candleSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
-                upColor: '#26a69a',
-                downColor: '#ef5350',
-                borderDownColor: '#ef5350',
-                borderUpColor: '#26a69a',
-                wickDownColor: '#ef5350',
-                wickUpColor: '#26a69a',
-            });
-            candleSeries.setData(chartData.candles);
-
-            if (chartData.volume && chartData.volume.length > 0) {
-                const volumePane = chart.addPane();
-                const volumeSeries = volumePane.addSeries(LightweightCharts.HistogramSeries, {
-                    priceFormat: { type: 'volume' },
-                });
-                volumePane.priceScale().applyOptions({
-                    scaleMargins: { top: 0.9, bottom: 0 },
-                });
-                volumeSeries.setData(chartData.volume);
-            }
-
-            const maLines = [
-                { data: chartData.sma200, color: '#4a90e2', title: 'SMA 200' },
-                { data: chartData.ema200, color: '#f5a623', title: 'EMA 200' },
-                { data: chartData.weekly_sma200, color: '#d0021b', title: 'Weekly SMA 200' }
-            ];
-
-            maLines.forEach(ma => {
-                if (ma.data && ma.data.length > 0) {
-                    const maSeries = chart.addSeries(LightweightCharts.LineSeries, {
-                        color: ma.color,
-                        lineWidth: 2,
-                        title: ma.title,
-                        priceLineVisible: false,
-                        lastValueVisible: false,
-                    });
-                    maSeries.setData(ma.data);
-                }
-            });
-
-            if (chartData.markers && chartData.markers.length > 0) {
-                LightweightCharts.createSeriesMarkers(candleSeries, chartData.markers);
-            }
-
-            if (symbolData.signals && symbolData.signals.length > 0) {
-                const latestSignal = symbolData.signals.sort((a, b) => new Date(b.breakout_date) - new Date(a.breakout_date))[0];
-                const signalDate = new Date(latestSignal.breakout_date);
-                const userTimezoneOffset = signalDate.getTimezoneOffset() * 60000;
-                const signalTimeUTC = signalDate.getTime() + userTimezoneOffset;
-
-                const fromDate = new Date(signalTimeUTC);
-                fromDate.setMonth(fromDate.getMonth() - 3);
-                const toDate = new Date(signalTimeUTC);
-                toDate.setMonth(toDate.getMonth() + 3);
-
-                const from = fromDate.toISOString().split('T')[0];
-                const to = toDate.toISOString().split('T')[0];
-
-                chart.timeScale().setVisibleRange({ from, to });
-            } else {
-                chart.timeScale().fitContent();
-            }
-
-            new ResizeObserver(entries => {
-                if (entries.length > 0 && entries[0].contentRect.width > 0) {
-                    chart.applyOptions({ width: entries[0].contentRect.width });
-                }
-            }).observe(container);
         }
 
         showStatus(message, type = 'info') {
@@ -984,7 +838,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     .filter(btn => btn.style.display !== 'none');
                 const currentIndex = tabButtons.findIndex(b => b.classList.contains('active'));
 
-                if (currentIndex === -1) return; // Active tab not found among visible tabs
+                if (currentIndex === -1) return;
 
                 let nextIndex = (deltaX > 0) ? currentIndex - 1 : currentIndex + 1;
                 if (nextIndex < 0) {
