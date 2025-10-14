@@ -25,19 +25,20 @@ WEEKLY_TREND_THRESHOLD = float(os.getenv('WEEKLY_TREND_THRESHOLD', '0.0'))
 
 # Rule 2: Setup
 SETUP_LOOKBACK_DAYS = int(os.getenv('SETUP_LOOKBACK_DAYS', '30'))
-INITIAL_SCAN_MIN_HISTORY_DAYS = int(os.getenv('INITIAL_SCAN_MIN_HISTORY_DAYS', '1000'))  # 初回スキャン開始位置（週足200MA計算に約1000営業日必要）
+INITIAL_SCAN_MIN_HISTORY_DAYS = int(os.getenv('INITIAL_SCAN_MIN_HISTORY_DAYS', '1000'))
 
-# Rule 3: FVG Detection
-FVG_MIN_GAP_PERCENTAGE = float(os.getenv('FVG_MIN_GAP_PERCENTAGE', '0.001'))
+# Rule 3: FVG Detection (bot_hwb.py方式)
+FVG_MIN_GAP_PERCENTAGE = float(os.getenv('FVG_MIN_GAP_PERCENTAGE', '0.001'))  # 0.1%
 FVG_MAX_SEARCH_DAYS = int(os.getenv('FVG_MAX_SEARCH_DAYS', '20'))
-MIN_FVG_SCORE = int(os.getenv('MIN_FVG_SCORE', '3'))
+PROXIMITY_PERCENTAGE = float(os.getenv('PROXIMITY_PERCENTAGE', '0.05'))  # 5%
+FVG_ZONE_PROXIMITY = float(os.getenv('FVG_ZONE_PROXIMITY', '0.10'))  # 10%
 
-# Rule 4: Breakout
-MIN_BREAKOUT_SCORE = int(os.getenv('MIN_BREAKOUT_SCORE', '5'))
+# Rule 4: Breakout (bot_hwb.py方式)
+BREAKOUT_THRESHOLD = float(os.getenv('BREAKOUT_THRESHOLD', '0.001'))  # 0.1%
 
 
 class HWBAnalyzer:
-    """HWB分析エンジン（時系列週足フィルター対応版）"""
+    """HWB分析エンジン（bot_hwb.py方式に統一）"""
     
     def __init__(self):
         self.market_regime = 'TRENDING'
@@ -50,7 +51,7 @@ class HWBAnalyzer:
                 'setup_lookback': 30, 
                 'fvg_search_days': 20, 
                 'ma_proximity': 0.05, 
-                'breakout_threshold': 0.003
+                'breakout_threshold': 0.001  # 固定0.1%
             },
         }
         return params.get(self.market_regime, params['TRENDING'])
@@ -70,22 +71,10 @@ class HWBAnalyzer:
         return weekly_deviation >= WEEKLY_TREND_THRESHOLD
 
     def check_weekly_trend_at_date(self, df_weekly: pd.DataFrame, check_date: pd.Timestamp) -> bool:
-        """
-        🔥 重要な修正：特定日時点での週足トレンドフィルター
-        
-        過去のセットアップを検証する際、「その時点」で週足200MA以上だったかをチェック
-        
-        Args:
-            df_weekly: 週足データフレーム
-            check_date: チェックする日付（セットアップ日など）
-        
-        Returns:
-            その日時点で週足200MA以上ならTrue
-        """
+        """特定日時点での週足トレンドフィルター"""
         if df_weekly is None or df_weekly.empty:
             return False
         
-        # check_date以前の週足データのみを使用（未来のデータを見ない）
         df_weekly_historical = df_weekly[df_weekly.index <= check_date]
         
         if df_weekly_historical.empty:
@@ -94,7 +83,6 @@ class HWBAnalyzer:
         if 'sma200' not in df_weekly_historical.columns or df_weekly_historical['sma200'].isna().all():
             return False
         
-        # その時点での最新週足データ
         latest_weekly_at_date = df_weekly_historical.iloc[-1]
         
         if pd.isna(latest_weekly_at_date['sma200']) or latest_weekly_at_date['sma200'] == 0:
@@ -114,35 +102,19 @@ class HWBAnalyzer:
         full_scan: bool = False,
         scan_start_date: Optional[pd.Timestamp] = None
     ) -> List[Dict]:
-        """
-        Rule ②: セットアップ検出（週足フィルター統合＋全期間対応版）
-        
-        重要な修正:
-        1. full_scan=True時は全期間（200日目以降）をスキャン
-        2. 各セットアップ候補で、その日時点の週足フィルターをチェック
-        3. scan_start_dateが指定されている場合、その日以降のみスキャン
-        
-        Args:
-            df_daily: 日足データ
-            df_weekly: 週足データ
-            full_scan: 初回分析時はTrue（全期間スキャン）
-            scan_start_date: 開始日（差分分析時に使用）
-        """
+        """Rule ②: セットアップ検出（週足フィルター統合＋全期間対応版）"""
         setups = []
         
         # スキャン範囲の決定
         if full_scan:
-            # 🔥 初回分析時：200MA計算に必要な最小期間から全期間スキャン
             scan_start_index = max(0, INITIAL_SCAN_MIN_HISTORY_DAYS)
             logger.info(f"セットアップ検出：全期間スキャン（{scan_start_index}日目〜{len(df_daily)}日目）")
         elif scan_start_date:
-            # 差分分析時：指定日以降
             try:
                 scan_start_index = df_daily.index.searchsorted(scan_start_date)
             except:
                 scan_start_index = max(0, len(df_daily) - SETUP_LOOKBACK_DAYS)
         else:
-            # デフォルト：最近N日
             scan_start_index = max(0, len(df_daily) - SETUP_LOOKBACK_DAYS)
         
         if scan_start_index >= len(df_daily):
@@ -155,7 +127,7 @@ class HWBAnalyzer:
             row = df_daily.iloc[i]
             setup_date = df_daily.index[i]
             
-            # 🔥 重要：この日付時点で週足200MAフィルターをチェック
+            # この日付時点で週足200MAフィルターをチェック
             if not self.check_weekly_trend_at_date(df_weekly, setup_date):
                 continue
             
@@ -176,9 +148,8 @@ class HWBAnalyzer:
                     'id': str(uuid.uuid4()),
                     'date': setup_date,
                     'type': 'PRIMARY',
-                    'confidence': 0.85,
                     'status': 'active',
-                    'weekly_deviation': self._get_weekly_deviation_at_date(df_weekly, setup_date)  # 記録
+                    'weekly_deviation': self._get_weekly_deviation_at_date(df_weekly, setup_date)
                 }
                 setups.append(setup)
             elif (zone_lower <= row['open'] <= zone_upper) or (zone_lower <= row['close'] <= zone_upper):
@@ -188,7 +159,6 @@ class HWBAnalyzer:
                         'id': str(uuid.uuid4()),
                         'date': setup_date,
                         'type': 'SECONDARY',
-                        'confidence': 0.65,
                         'status': 'active',
                         'weekly_deviation': self._get_weekly_deviation_at_date(df_weekly, setup_date)
                     }
@@ -212,8 +182,39 @@ class HWBAnalyzer:
         except:
             return None
 
+    def _check_fvg_ma_proximity(self, candle_3: pd.Series, candle_1: pd.Series) -> bool:
+        """
+        FVGがMA近接条件を満たすかチェック（bot_hwb.py方式）
+        
+        条件A: 3本目の始値or終値がMA±5%以内
+        条件B: FVGゾーンの中心がMA±10%以内
+        """
+        if pd.isna(candle_3.get('sma200')) or pd.isna(candle_3.get('ema200')):
+            return False
+        
+        # 条件A: 3本目の始値or終値がMA±5%以内
+        for price in [candle_3['open'], candle_3['close']]:
+            sma_deviation = abs(price - candle_3['sma200']) / candle_3['sma200']
+            ema_deviation = abs(price - candle_3['ema200']) / candle_3['ema200']
+            if sma_deviation <= PROXIMITY_PERCENTAGE or ema_deviation <= PROXIMITY_PERCENTAGE:
+                return True
+        
+        # 条件B: FVGゾーンの中心がMA±10%以内
+        fvg_center = (candle_1['high'] + candle_3['low']) / 2
+        sma_deviation = abs(fvg_center - candle_3['sma200']) / candle_3['sma200']
+        ema_deviation = abs(fvg_center - candle_3['ema200']) / candle_3['ema200']
+        
+        return sma_deviation <= FVG_ZONE_PROXIMITY or ema_deviation <= FVG_ZONE_PROXIMITY
+
     def optimized_fvg_detection(self, df_daily: pd.DataFrame, setup: Dict) -> List[Dict]:
-        """Rule ③: FVG検出（setup_id紐付け版）"""
+        """
+        Rule ③: FVG検出（bot_hwb.py方式、スコアリング削除）
+        
+        条件:
+        1. candle_3のlow > candle_1のhigh (ギャップ存在)
+        2. ギャップ率 > 0.1%
+        3. MA近接条件を満たす
+        """
         fvgs = []
         setup_date = setup['date']
         
@@ -225,69 +226,39 @@ class HWBAnalyzer:
         max_days = self.params['fvg_search_days']
         search_end = min(setup_idx + max_days, len(df_daily) - 1)
 
-        vol_rolling_mean = df_daily['volume'].rolling(20).mean()
-        volatility = df_daily['close'].pct_change().rolling(20).std()
-
         for i in range(setup_idx + 2, search_end):
-            candle_1, candle_3 = df_daily.iloc[i-2], df_daily.iloc[i]
+            if i >= len(df_daily):
+                break
+                
+            candle_1 = df_daily.iloc[i-2]
+            candle_3 = df_daily.iloc[i]
             
             # FVG条件: candle_3のlowがcandle_1のhighより上
             if candle_3['low'] <= candle_1['high']:
                 continue
 
+            # ギャップ率チェック（0.1%以上）
             gap_percentage = (candle_3['low'] - candle_1['high']) / candle_1['high']
             if gap_percentage < FVG_MIN_GAP_PERCENTAGE:
                 continue
 
-            # スコアリング
-            fvg_score = 0
-            if gap_percentage > 0.005:
-                fvg_score += 3
-            elif gap_percentage > 0.002:
-                fvg_score += 2
-            else:
-                fvg_score += 1
+            # MA近接条件チェック（bot_hwb.py方式）
+            if not self._check_fvg_ma_proximity(candle_3, candle_1):
+                continue
 
-            # ボリューム確認
-            volume_surge = candle_3['volume'] / vol_rolling_mean.iloc[i] if vol_rolling_mean.iloc[i] > 0 else 1
-            if volume_surge > 1.5:
-                fvg_score += 2
-            elif volume_surge > 1.2:
-                fvg_score += 1
-
-            # MA proximity
-            ma_deviation = None
-            ma_center = (candle_3.get('sma200', 0) + candle_3.get('ema200', 0)) / 2
-            if ma_center > 0:
-                price_center = (candle_3['open'] + candle_3['close']) / 2
-                ma_deviation = abs(price_center - ma_center) / ma_center
-                current_volatility = volatility.iloc[i]
-                if pd.notna(current_volatility):
-                    dynamic_threshold = min(0.05 + current_volatility * 2, 0.10)
-                    if ma_deviation <= dynamic_threshold * 0.5:
-                        fvg_score += 3
-                    elif ma_deviation <= dynamic_threshold:
-                        fvg_score += 2
-                    elif ma_deviation <= dynamic_threshold * 1.5:
-                        fvg_score += 1
-
-            if fvg_score >= MIN_FVG_SCORE:
-                fvg = {
-                    'id': str(uuid.uuid4()),
-                    'setup_id': setup['id'],
-                    'formation_date': df_daily.index[i],
-                    'gap_percentage': gap_percentage,
-                    'score': fvg_score,
-                    'volume_surge': volume_surge,
-                    'ma_deviation': ma_deviation,
-                    'quality': 'HIGH' if fvg_score >= 6 else 'MEDIUM' if fvg_score >= 4 else 'LOW',
-                    'lower_bound': candle_1['high'],
-                    'upper_bound': candle_3['low'],
-                    'status': 'active'
-                }
-                fvgs.append(fvg)
+            # FVGとして認識（スコア不要）
+            fvg = {
+                'id': str(uuid.uuid4()),
+                'setup_id': setup['id'],
+                'formation_date': df_daily.index[i],
+                'gap_percentage': gap_percentage,
+                'lower_bound': candle_1['high'],
+                'upper_bound': candle_3['low'],
+                'status': 'active'
+            }
+            fvgs.append(fvg)
         
-        return sorted(fvgs, key=lambda x: x['score'], reverse=True)
+        return fvgs
 
     def optimized_breakout_detection_all_periods(
         self, 
@@ -295,68 +266,63 @@ class HWBAnalyzer:
         setup: Dict, 
         fvg: Dict
     ) -> Optional[Dict]:
-        """Rule ④: ブレイクアウト検出（全期間スキャン版）"""
+        """
+        Rule ④: ブレイクアウト検出（bot_hwb.py方式、スコアリング削除）
+        
+        条件:
+        1. レジスタンス = セットアップ〜FVG間の最高値
+        2. 終値 > レジスタンス * (1 + 0.1%)
+        3. FVG下限が破られていない
+        """
         try:
             setup_idx = df_daily.index.get_loc(setup['date'])
             fvg_idx = df_daily.index.get_loc(fvg['formation_date'])
         except KeyError:
             return None
 
-        # レジスタンスレベル計算
-        lookback_window = min(20, fvg_idx - setup_idx)
-        resistance_data = df_daily.iloc[max(0, fvg_idx - lookback_window) : fvg_idx]
+        # レジスタンスレベル計算（bot_hwb.py方式：単純な最高値）
+        resistance_start_idx = setup_idx + 1
+        resistance_end_idx = fvg_idx
+        
+        if resistance_end_idx <= resistance_start_idx:
+            resistance_start_idx = max(0, setup_idx - 10)
+            resistance_end_idx = setup_idx + 1
+        
+        resistance_data = df_daily.iloc[resistance_start_idx:resistance_end_idx]
         
         if resistance_data.empty:
             return None
 
-        resistance_levels = {
-            'high': resistance_data['high'].max(),
-            'close': resistance_data['close'].max(),
-            'vwap': (resistance_data['close'] * resistance_data['volume']).sum() / resistance_data['volume'].sum() 
-                    if resistance_data['volume'].sum() > 0 
-                    else resistance_data['close'].mean(),
-            'pivot': (resistance_data['high'].max() + resistance_data['low'].min() + resistance_data['close'].iloc[-1]) / 3
-        }
-        main_resistance = np.median(list(resistance_levels.values()))
+        # シンプルな最高値をレジスタンスとする
+        resistance_high = resistance_data['high'].max()
 
         # FVG違反チェック
         post_fvg_data = df_daily.iloc[fvg_idx:]
         if post_fvg_data['low'].min() < fvg['lower_bound'] * 0.98:
-            return {'status': 'violated', 'violated_date': post_fvg_data['low'].idxmin()}
+            return {
+                'status': 'violated', 
+                'violated_date': post_fvg_data['low'].idxmin()
+            }
 
-        # ブレイクアウトチェック（FVG形成日から現在まで）
-        vol_ma = df_daily['volume'].rolling(20).mean()
-        
+        # ブレイクアウトチェック（FVG形成日から現在まで、固定閾値0.1%）
         for i in range(fvg_idx + 1, len(df_daily)):
             current = df_daily.iloc[i]
-            recent_volatility = df_daily['close'].pct_change().rolling(20).std().iloc[i]
-            breakout_threshold = max(self.params['breakout_threshold'], min(0.01, recent_volatility * 3))
 
-            cond_price = current['close'] > main_resistance * (1 + breakout_threshold)
-            cond_volume = current['volume'] > vol_ma.iloc[i] * 1.2 if pd.notna(vol_ma.iloc[i]) else False
-            cond_momentum = df_daily['close'].pct_change(5).iloc[i] > 0
-
-            breakout_score = sum([
-                3 if cond_price else 0,
-                2 if cond_volume else 0,
-                1 if cond_momentum else 0
-            ])
-
-            if breakout_score >= MIN_BREAKOUT_SCORE:
+            # bot_hwb.py方式：固定閾値0.1%
+            if current['close'] > resistance_high * (1 + BREAKOUT_THRESHOLD):
                 return {
                     'status': 'breakout',
                     'breakout_date': df_daily.index[i],
                     'breakout_price': current['close'],
-                    'resistance_price': main_resistance,
-                    'breakout_score': breakout_score,
-                    'confidence': 'HIGH' if breakout_score >= 7 else 'MEDIUM',
+                    'resistance_price': resistance_high,
+                    'breakout_percentage': (current['close'] / resistance_high - 1) * 100
                 }
         
         return None
 
 
 class HWBScanner:
-    """メインスキャナー（全期間対応版）"""
+    """メインスキャナー（bot_hwb.py方式に統一）"""
     
     def __init__(self):
         self.data_manager = HWBDataManager()
@@ -422,7 +388,6 @@ class HWBScanner:
             if existing_data:
                 result = self._differential_analysis(symbol, df_daily, df_weekly, existing_data)
             else:
-                # 🔥 初回分析は全期間スキャン
                 result = self._full_analysis(symbol, df_daily, df_weekly)
             
             return result
@@ -438,7 +403,7 @@ class HWBScanner:
         df_weekly: pd.DataFrame,
         existing_data: dict
     ) -> Optional[List[Dict]]:
-        """差分分析（週足フィルター対応版）"""
+        """差分分析（bot_hwb.py方式に統一）"""
         existing_setups = existing_data.get('setups', [])
         existing_fvgs = existing_data.get('fvgs', [])
         existing_signals = existing_data.get('signals', [])
@@ -522,7 +487,6 @@ class HWBScanner:
                 
                 if breakout and breakout.get('status') == 'breakout':
                     signal = {**fvg, **breakout}
-                    signal['score'] = self._calculate_signal_score(signal)
                     existing_data['signals'].append(signal)
                     
                     setup['status'] = 'consumed'
@@ -538,13 +502,12 @@ class HWBScanner:
                     fvg['violated_date'] = breakout.get('violated_date')
                     updated = True
         
-        # 新規セットアップ探索（週足フィルター対応）
+        # 新規セットアップ探索
         if not active_setups or all(s.get('status') == 'consumed' for s in existing_setups):
             logger.info(f"{symbol}: 新セットアップ探索")
             
             new_start_date = pd.Timestamp(last_analyzed_date) + pd.Timedelta(days=1)
             
-            # 🔥 週足フィルター付きでセットアップ検出
             new_setups = self.analyzer.optimized_rule2_setups(
                 df_daily, 
                 df_weekly,
@@ -569,20 +532,14 @@ class HWBScanner:
         df_daily: pd.DataFrame,
         df_weekly: pd.DataFrame
     ) -> Optional[List[Dict]]:
-        """
-        🔥 初回フルスキャン（全期間対応版）
-        
-        重要な変更:
-        - full_scan=True で全期間（6年分）をスキャン
-        - 各セットアップは週足フィルターを通過したもののみ
-        """
+        """初回フルスキャン（bot_hwb.py方式に統一）"""
         logger.info(f"{symbol}: 初回フルスキャン（全期間：{len(df_daily)}日分）")
         
         # Rule ②: セットアップ検出（全期間、週足フィルター統合）
         setups = self.analyzer.optimized_rule2_setups(
             df_daily, 
             df_weekly, 
-            full_scan=True  # 🔥 全期間スキャン
+            full_scan=True
         )
         
         if not setups:
@@ -619,7 +576,6 @@ class HWBScanner:
                 if breakout:
                     if breakout.get('status') == 'breakout':
                         signal = {**fvg, **breakout}
-                        signal['score'] = self._calculate_signal_score(signal)
                         all_signals.append(signal)
                         
                         consumed_setups.add(setup['id'])
@@ -668,15 +624,16 @@ class HWBScanner:
         return self._create_summary_from_data(symbol, all_signals, all_fvgs)
 
     def _detect_fvg_in_range(self, df_daily: pd.DataFrame, setup: Dict, start_idx: int, end_idx: int) -> List[Dict]:
-        """指定範囲内でFVG検出"""
+        """指定範囲内でFVG検出（bot_hwb.py方式）"""
         fvgs = []
-        vol_rolling_mean = df_daily['volume'].rolling(20).mean()
         
         for i in range(start_idx, end_idx):
             if i < 2:
                 continue
             
-            candle_1, candle_3 = df_daily.iloc[i-2], df_daily.iloc[i]
+            candle_1 = df_daily.iloc[i-2]
+            candle_3 = df_daily.iloc[i]
+            
             if candle_3['low'] <= candle_1['high']:
                 continue
             
@@ -684,49 +641,56 @@ class HWBScanner:
             if gap_percentage < FVG_MIN_GAP_PERCENTAGE:
                 continue
             
-            fvg_score = 1 if gap_percentage > 0.001 else 0
-            if fvg_score >= MIN_FVG_SCORE:
-                fvg = {
-                    'id': str(uuid.uuid4()),
-                    'setup_id': setup['id'],
-                    'formation_date': df_daily.index[i],
-                    'gap_percentage': gap_percentage,
-                    'score': fvg_score,
-                    'quality': 'MEDIUM',
-                    'lower_bound': candle_1['high'],
-                    'upper_bound': candle_3['low'],
-                    'status': 'active'
-                }
-                fvgs.append(fvg)
+            # MA近接条件チェック（bot_hwb.py方式）
+            if not self.analyzer._check_fvg_ma_proximity(candle_3, candle_1):
+                continue
+            
+            fvg = {
+                'id': str(uuid.uuid4()),
+                'setup_id': setup['id'],
+                'formation_date': df_daily.index[i],
+                'gap_percentage': gap_percentage,
+                'lower_bound': candle_1['high'],
+                'upper_bound': candle_3['low'],
+                'status': 'active'
+            }
+            fvgs.append(fvg)
         
         return fvgs
 
     def _check_breakout_in_range(self, df_daily: pd.DataFrame, setup: Dict, fvg: Dict, start_idx: int, end_idx: int) -> Optional[Dict]:
-        """指定範囲内でブレイクアウトチェック"""
+        """指定範囲内でブレイクアウトチェック（bot_hwb.py方式）"""
         try:
             setup_idx = df_daily.index.get_loc(setup['date'])
             fvg_idx = df_daily.index.get_loc(fvg['formation_date'])
         except KeyError:
             return None
         
-        lookback_window = min(20, fvg_idx - setup_idx)
-        resistance_data = df_daily.iloc[max(0, fvg_idx - lookback_window) : fvg_idx]
+        # レジスタンス計算（bot_hwb.py方式：単純な最高値）
+        resistance_start_idx = setup_idx + 1
+        resistance_end_idx = fvg_idx
+        
+        if resistance_end_idx <= resistance_start_idx:
+            resistance_start_idx = max(0, setup_idx - 10)
+            resistance_end_idx = setup_idx + 1
+        
+        resistance_data = df_daily.iloc[resistance_start_idx:resistance_end_idx]
         
         if resistance_data.empty:
             return None
         
-        main_resistance = resistance_data['high'].max()
+        resistance_high = resistance_data['high'].max()
         
+        # 固定閾値0.1%でブレイクアウトチェック
         for i in range(start_idx, end_idx):
             current = df_daily.iloc[i]
-            if current['close'] > main_resistance * 1.003:
+            if current['close'] > resistance_high * (1 + BREAKOUT_THRESHOLD):
                 return {
                     'status': 'breakout',
                     'breakout_date': df_daily.index[i],
                     'breakout_price': current['close'],
-                    'resistance_price': main_resistance,
-                    'breakout_score': 6,
-                    'confidence': 'MEDIUM'
+                    'resistance_price': resistance_high,
+                    'breakout_percentage': (current['close'] / resistance_high - 1) * 100
                 }
         
         return None
@@ -754,16 +718,15 @@ class HWBScanner:
         return self._create_summary_from_data(symbol, signals, fvgs)
 
     def _create_summary_from_data(self, symbol: str, signals: list, fvgs: list) -> List[Dict]:
-        """シグナルとFVGからサマリー作成（3カテゴリ対応）"""
+        """シグナルとFVGからサマリー作成（3カテゴリ対応、スコアリング削除）"""
         summary_results = []
         today = datetime.now().date()
         
-        # 🔥 営業日計算（土日を除外した5営業日前）
+        # 営業日計算（土日を除外した5営業日前）
         business_days_back = 0
         current_date = today
         while business_days_back < 5:
             current_date -= timedelta(days=1)
-            # 土日をスキップ（0=月曜, 6=日曜）
             if current_date.weekday() < 5:  # 月〜金
                 business_days_back += 1
         five_business_days_ago = current_date
@@ -777,7 +740,6 @@ class HWBScanner:
                     breakout_date = pd.to_datetime(breakout_date_str).date()
 
                     if breakout_date == today:
-                        # ① 当日ブレイクアウト
                         summary_results.append({
                             "symbol": symbol,
                             "signal_type": "signal_today",
@@ -785,7 +747,6 @@ class HWBScanner:
                             "category": "当日ブレイクアウト"
                         })
                     elif five_business_days_ago <= breakout_date < today:
-                        # ③ 直近5営業日以内（当日除く）
                         summary_results.append({
                             "symbol": symbol,
                             "signal_type": "signal_recent",
@@ -795,9 +756,9 @@ class HWBScanner:
                 except Exception as e:
                     logger.warning(f"Failed to parse breakout_date for {symbol}: {e}")
         
-        # ② 過去5営業日以内のアクティブなFVG
+        # ② 過去5営業日以内のアクティブなFVG（スコアリング削除）
         for fvg in fvgs:
-            if fvg.get('status') == 'active' and fvg.get('quality') in ['HIGH', 'MEDIUM']:
+            if fvg.get('status') == 'active':
                 formation_date_str = fvg.get('formation_date')
                 if formation_date_str:
                     try:
@@ -807,7 +768,6 @@ class HWBScanner:
                             summary_results.append({
                                 "symbol": symbol,
                                 "signal_type": "candidate",
-                                "score": fvg.get('score', 0),
                                 "fvg_date": formation_date_str,
                                 "category": "監視銘柄"
                             })
@@ -815,13 +775,6 @@ class HWBScanner:
                         logger.warning(f"Failed to parse formation_date for {symbol}: {e}")
         
         return summary_results
-
-    def _calculate_signal_score(self, signal_data: Dict) -> int:
-        """総合スコア計算（0-100）"""
-        setup_score = signal_data.get('setup_confidence', 0.5) * 35
-        fvg_score = (signal_data.get('score', 0) / 10) * 40
-        breakout_score = (signal_data.get('breakout_score', 0) / 8) * 30 if 'breakout_score' in signal_data else 0
-        return int(min(setup_score + fvg_score + breakout_score, 100))
 
     def _generate_lightweight_chart_data(self, symbol_data: dict, df_daily: pd.DataFrame, df_weekly: pd.DataFrame) -> dict:
         """チャートデータ生成"""
@@ -900,10 +853,11 @@ class HWBScanner:
         }
 
     def _create_daily_summary(self, results: List[Dict], total_scanned: int, start_time: datetime) -> Dict:
-        """日次サマリー作成（3カテゴリ対応）"""
+        """日次サマリー作成（3カテゴリ対応、スコアリング削除）"""
         end_time = datetime.now()
 
         def _merge_and_sort(items: List[Dict], date_key: str) -> List[Dict]:
+            """重複を除去してソート（スコアリング削除）"""
             merged = {}
             for item in items:
                 if date_key not in item or 'symbol' not in item:
@@ -911,7 +865,8 @@ class HWBScanner:
                 key = (item['symbol'], item[date_key])
                 if key not in merged:
                     merged[key] = item
-            return sorted(list(merged.values()), key=lambda x: x.get('score', 0), reverse=True)
+            # スコアリング削除：シンボル名でソート
+            return sorted(list(merged.values()), key=lambda x: x.get('symbol', ''))
 
         # カテゴリ別に分類
         signals_today = [r for r in results if r.get('signal_type') == 'signal_today']
@@ -946,7 +901,6 @@ async def run_hwb_scan(progress_callback=None):
     scanner = HWBScanner()
     summary = await scanner.scan_all_symbols(progress_callback)
     
-    # 修正：正しいキー名を使用
     logger.info(
         f"完了 - 当日: {summary['summary']['signals_today_count']}, "
         f"直近: {summary['summary']['signals_recent_count']}, "
