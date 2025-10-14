@@ -990,3 +990,101 @@ body {
         margin-top: 10px;
     }
 }
+
+/* HWB Symbol List Styles */
+.hwb-symbol-section {
+    margin-top: 30px;
+}
+
+.hwb-symbol-section h2 {
+    color: var(--tab-text);
+    font-size: 1.4em;
+    margin-bottom: 20px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--border-color);
+}
+
+.hwb-symbol-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.hwb-symbol-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 15px 20px;
+    background-color: var(--card-background);
+    border-radius: 8px;
+    box-shadow: 0 2px 8px var(--shadow-color);
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.hwb-symbol-item:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px var(--shadow-color);
+}
+
+.hwb-symbol-name {
+    font-size: 1.2em;
+    font-weight: bold;
+    color: var(--text-primary);
+    flex: 0 0 100px;
+}
+
+.hwb-symbol-badge {
+    padding: 6px 14px;
+    border-radius: 15px;
+    font-weight: 600;
+    font-size: 0.85em;
+    flex: 0 0 auto;
+    margin: 0 10px;
+}
+
+.badge-signal {
+    background-color: #28a745;
+    color: white;
+}
+
+.badge-high {
+    background-color: #28a745;
+    color: white;
+}
+
+.badge-medium {
+    background-color: #ffc107;
+    color: #333;
+}
+
+.badge-low {
+    background-color: #6c757d;
+    color: white;
+}
+
+.hwb-symbol-date {
+    font-size: 0.9em;
+    color: var(--text-secondary);
+    flex: 1;
+    text-align: right;
+}
+
+@media (max-width: 768px) {
+    .hwb-symbol-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+
+    .hwb-symbol-name {
+        flex: none;
+    }
+
+    .hwb-symbol-badge {
+        margin: 0;
+    }
+
+    .hwb-symbol-date {
+        text-align: left;
+    }
+}
