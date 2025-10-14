@@ -569,7 +569,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     dateInfo = item.signal_date;
                 } else {
                     // スコアリング削除：シンプルなFVGバッジに変更
-                    badgeText = 'FVG';
+                    badgeText = '🐮';
                     badgeClass = 'badge-candidate';
                     dateInfo = item.fvg_date;
                 }
