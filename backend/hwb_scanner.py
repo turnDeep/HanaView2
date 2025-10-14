@@ -754,25 +754,65 @@ class HWBScanner:
         return self._create_summary_from_data(symbol, signals, fvgs)
 
     def _create_summary_from_data(self, symbol: str, signals: list, fvgs: list) -> List[Dict]:
-        """シグナルとFVGからサマリー作成"""
+        """シグナルとFVGからサマリー作成（3カテゴリ対応）"""
         summary_results = []
+        today = datetime.now().date()
         
+        # 🔥 営業日計算（土日を除外した5営業日前）
+        business_days_back = 0
+        current_date = today
+        while business_days_back < 5:
+            current_date -= timedelta(days=1)
+            # 土日をスキップ（0=月曜, 6=日曜）
+            if current_date.weekday() < 5:  # 月〜金
+                business_days_back += 1
+        five_business_days_ago = current_date
+
+        # ① 当日ブレイクアウト
+        # ③ 直近5営業日以内のブレイクアウト（当日除く）
         for signal in signals:
-            summary_results.append({
-                "symbol": symbol,
-                "signal_type": "signal",
-                "score": signal.get('score', 50),
-                "signal_date": signal.get('breakout_date')
-            })
+            breakout_date_str = signal.get('breakout_date')
+            if breakout_date_str:
+                try:
+                    breakout_date = pd.to_datetime(breakout_date_str).date()
+
+                    if breakout_date == today:
+                        # ① 当日ブレイクアウト
+                        summary_results.append({
+                            "symbol": symbol,
+                            "signal_type": "signal_today",
+                            "signal_date": breakout_date_str,
+                            "category": "当日ブレイクアウト"
+                        })
+                    elif five_business_days_ago <= breakout_date < today:
+                        # ③ 直近5営業日以内（当日除く）
+                        summary_results.append({
+                            "symbol": symbol,
+                            "signal_type": "signal_recent",
+                            "signal_date": breakout_date_str,
+                            "category": "直近5営業日以内"
+                        })
+                except Exception as e:
+                    logger.warning(f"Failed to parse breakout_date for {symbol}: {e}")
         
+        # ② 過去5営業日以内のアクティブなFVG
         for fvg in fvgs:
             if fvg.get('status') == 'active' and fvg.get('quality') in ['HIGH', 'MEDIUM']:
-                summary_results.append({
-                    "symbol": symbol,
-                    "signal_type": "candidate",
-                    "score": self._calculate_signal_score(fvg),
-                    "fvg_date": fvg.get('formation_date')
-                })
+                formation_date_str = fvg.get('formation_date')
+                if formation_date_str:
+                    try:
+                        formation_date = pd.to_datetime(formation_date_str).date()
+
+                        if five_business_days_ago <= formation_date <= today:
+                            summary_results.append({
+                                "symbol": symbol,
+                                "signal_type": "candidate",
+                                "score": fvg.get('score', 0),
+                                "fvg_date": formation_date_str,
+                                "category": "監視銘柄"
+                            })
+                    except Exception as e:
+                        logger.warning(f"Failed to parse formation_date for {symbol}: {e}")
         
         return summary_results
 
@@ -860,7 +900,7 @@ class HWBScanner:
         }
 
     def _create_daily_summary(self, results: List[Dict], total_scanned: int, start_time: datetime) -> Dict:
-        """日次サマリー作成（重複排除機能付き）"""
+        """日次サマリー作成（3カテゴリ対応）"""
         end_time = datetime.now()
 
         def _merge_and_sort(items: List[Dict], date_key: str) -> List[Dict]:
@@ -869,15 +909,18 @@ class HWBScanner:
                 if date_key not in item or 'symbol' not in item:
                     continue
                 key = (item['symbol'], item[date_key])
-                if key not in merged or item['score'] > merged[key]['score']:
+                if key not in merged:
                     merged[key] = item
-            return sorted(list(merged.values()), key=lambda x: x['score'], reverse=True)
+            return sorted(list(merged.values()), key=lambda x: x.get('score', 0), reverse=True)
 
-        all_signals = [r for r in results if r.get('signal_type') == 'signal']
-        all_candidates = [r for r in results if r.get('signal_type') == 'candidate']
+        # カテゴリ別に分類
+        signals_today = [r for r in results if r.get('signal_type') == 'signal_today']
+        signals_recent = [r for r in results if r.get('signal_type') == 'signal_recent']
+        candidates = [r for r in results if r.get('signal_type') == 'candidate']
 
-        unique_signals = _merge_and_sort(all_signals, 'signal_date')
-        unique_candidates = _merge_and_sort(all_candidates, 'fvg_date')
+        unique_signals_today = _merge_and_sort(signals_today, 'signal_date')
+        unique_signals_recent = _merge_and_sort(signals_recent, 'signal_date')
+        unique_candidates = _merge_and_sort(candidates, 'fvg_date')
         
         return {
             "scan_date": end_time.strftime('%Y-%m-%d'),
@@ -885,9 +928,11 @@ class HWBScanner:
             "scan_duration_seconds": (end_time - start_time).total_seconds(),
             "total_scanned": total_scanned,
             "summary": {
-                "signals_count": len(unique_signals),
+                "signals_today_count": len(unique_signals_today),
+                "signals_recent_count": len(unique_signals_recent),
                 "candidates_count": len(unique_candidates),
-                "signals": unique_signals,
+                "signals_today": unique_signals_today,
+                "signals_recent": unique_signals_recent,
                 "candidates": unique_candidates
             },
             "performance": {
