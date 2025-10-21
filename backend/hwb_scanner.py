@@ -378,6 +378,8 @@ class HWBScanner:
             df_daily = df_daily[~df_daily.index.duplicated(keep='last')]
             df_weekly = df_weekly[~df_weekly.index.duplicated(keep='last')]
 
+            latest_market_date = df_daily.index[-1].date()
+
             # Rule ①: 現時点のトレンドフィルター（初期チェック）
             if not self.analyzer.optimized_rule1(df_daily, df_weekly):
                 return None
@@ -386,9 +388,9 @@ class HWBScanner:
             existing_data = self.data_manager.load_symbol_data(symbol)
             
             if existing_data:
-                result = self._differential_analysis(symbol, df_daily, df_weekly, existing_data)
+                result = self._differential_analysis(symbol, df_daily, df_weekly, existing_data, latest_market_date)
             else:
-                result = self._full_analysis(symbol, df_daily, df_weekly)
+                result = self._full_analysis(symbol, df_daily, df_weekly, latest_market_date)
             
             return result
 
@@ -401,7 +403,8 @@ class HWBScanner:
         symbol: str, 
         df_daily: pd.DataFrame, 
         df_weekly: pd.DataFrame,
-        existing_data: dict
+        existing_data: dict,
+        latest_market_date: datetime.date
     ) -> Optional[List[Dict]]:
         """差分分析（bot_hwb.py方式に統一）"""
         existing_setups = existing_data.get('setups', [])
@@ -421,13 +424,12 @@ class HWBScanner:
         active_fvgs = [f for f in existing_fvgs if f.get('status') == 'active']
         
         last_analyzed_date = pd.to_datetime(existing_data.get('last_updated', '2000-01-01')).date()
-        latest_data_date = df_daily.index[-1].date()
         
-        if latest_data_date <= last_analyzed_date:
+        if latest_market_date <= last_analyzed_date:
             logger.debug(f"{symbol}: 新しいデータなし")
-            return self._create_summary_from_existing(existing_data)
+            return self._create_summary_from_existing(existing_data, latest_market_date)
         
-        logger.info(f"{symbol}: 差分分析 ({last_analyzed_date} → {latest_data_date})")
+        logger.info(f"{symbol}: 差分分析 ({last_analyzed_date} → {latest_market_date})")
         
         updated = False
         new_fvgs_found = []
@@ -524,13 +526,14 @@ class HWBScanner:
             existing_data['last_updated'] = datetime.now().isoformat()
             self._save_symbol_data_with_chart(symbol, existing_data, df_daily, df_weekly)
         
-        return self._create_summary_from_existing(existing_data)
+        return self._create_summary_from_existing(existing_data, latest_market_date)
 
     def _full_analysis(
         self,
         symbol: str,
         df_daily: pd.DataFrame,
-        df_weekly: pd.DataFrame
+        df_weekly: pd.DataFrame,
+        latest_market_date: datetime.date
     ) -> Optional[List[Dict]]:
         """初回フルスキャン（bot_hwb.py方式に統一）"""
         logger.info(f"{symbol}: 初回フルスキャン（全期間：{len(df_daily)}日分）")
@@ -621,7 +624,7 @@ class HWBScanner:
         )
         
         self._save_symbol_data_with_chart(symbol, symbol_data, df_daily, df_weekly)
-        return self._create_summary_from_data(symbol, all_signals, all_fvgs)
+        return self._create_summary_from_data(symbol, all_signals, all_fvgs, latest_market_date)
 
     def _detect_fvg_in_range(self, df_daily: pd.DataFrame, setup: Dict, start_idx: int, end_idx: int) -> List[Dict]:
         """指定範囲内でFVG検出（bot_hwb.py方式）"""
@@ -710,17 +713,17 @@ class HWBScanner:
         symbol_data['chart_data'] = self._generate_lightweight_chart_data(symbol_data, df_daily, df_weekly)
         self.data_manager.save_symbol_data(symbol, symbol_data)
 
-    def _create_summary_from_existing(self, existing_data: dict) -> List[Dict]:
+    def _create_summary_from_existing(self, existing_data: dict, latest_market_date: datetime.date) -> List[Dict]:
         """既存データからサマリー作成"""
         symbol = existing_data['symbol']
         signals = existing_data.get('signals', [])
         fvgs = existing_data.get('fvgs', [])
-        return self._create_summary_from_data(symbol, signals, fvgs)
+        return self._create_summary_from_data(symbol, signals, fvgs, latest_market_date)
 
-    def _create_summary_from_data(self, symbol: str, signals: list, fvgs: list) -> List[Dict]:
+    def _create_summary_from_data(self, symbol: str, signals: list, fvgs: list, latest_market_date: datetime.date) -> List[Dict]:
         """シグナルとFVGからサマリー作成（3カテゴリ対応、スコアリング削除）"""
         summary_results = []
-        today = datetime.now().date()
+        today = latest_market_date
         
         # 営業日計算（土日を除外した5営業日前）
         business_days_back = 0
