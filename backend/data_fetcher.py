@@ -1596,8 +1596,18 @@ class MarketDataFetcher:
             for sub_id, subscription in list(subscriptions.items()):
                 permission = subscription.get("permission", "standard")
 
-                if is_hwb_scan_notification and permission not in ["secret", "ura"]:
-                    logger.info(f"Skipping HWB notification for {sub_id} due to '{permission}' permission.")
+                # Determine whether to send the notification based on its type and user permission
+                should_send = False
+                if is_hwb_scan_notification:
+                    # For HWB scans, only send to 'secret' or 'ura' users
+                    if permission in ["secret", "ura"]:
+                        should_send = True
+                else:
+                    # For all other notifications (e.g., data updates), send to everyone
+                    should_send = True
+
+                if not should_send:
+                    logger.info(f"Skipping HWB notification for {sub_id} due to insufficient '{permission}' permission.")
                     continue
 
                 try:
