@@ -1610,15 +1610,23 @@ class MarketDataFetcher:
                     logger.info(f"Skipping HWB notification for {sub_id} due to insufficient '{permission}' permission.")
                     continue
 
+                # ✅ webpush用にクリーンなサブスクリプションオブジェクトを作成（permissionフィールドを除外）
+                clean_subscription = {
+                    "endpoint": subscription["endpoint"],
+                    "keys": subscription["keys"]
+                }
+                if "expirationTime" in subscription and subscription["expirationTime"] is not None:
+                    clean_subscription["expirationTime"] = subscription["expirationTime"]
+
                 try:
                     webpush(
-                        subscription_info=subscription,
+                        subscription_info=clean_subscription,  # ✅ クリーンなオブジェクトを使用
                         data=json.dumps(notification_data),
                         vapid_private_key=security_manager.vapid_private_key,
                         vapid_claims={"sub": security_manager.vapid_subject}
                     )
                     sent_count += 1
-                    logger.debug(f"Notification sent to subscription {sub_id}")
+                    logger.debug(f"Notification sent to subscription {sub_id} with permission '{permission}'")
                 except WebPushException as ex:
                     logger.error(f"Failed to send notification to {sub_id}: {ex}")
                     if ex.response and ex.response.status_code == 410:
@@ -1634,7 +1642,13 @@ class MarketDataFetcher:
                     json.dump(subscriptions, f)
                 logger.info(f"Removed {len(failed_subscriptions)} invalid subscriptions")
 
-            logger.info(f"Push notifications sent: {sent_count}")
+            # 権限別の内訳をロギング
+            standard_count = sum(1 for s in subscriptions.values() if s.get('permission', 'standard') == 'standard')
+            secret_count = sum(1 for s in subscriptions.values() if s.get('permission') == 'secret')
+            ura_count = sum(1 for s in subscriptions.values() if s.get('permission') == 'ura')
+            logger.info(f"Push notifications sent: {sent_count} | "
+                        f"Standard: {standard_count}, Secret: {secret_count}, Ura: {ura_count}")
+
             return sent_count
 
         except Exception as e:
