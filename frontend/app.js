@@ -121,7 +121,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function initializeApp() {
         try {
             if (AuthManager.isAuthenticated()) {
-                showDashboard();
+                await showDashboard();  // ← awaitを追加
             } else {
                 showAuthScreen();
             }
@@ -152,14 +152,20 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function showDashboard() {
+    async function showDashboard() {
         if (authContainer) authContainer.style.display = 'none';
         if (dashboardContainer) dashboardContainer.style.display = 'block';
 
         applyTabPermissions();
 
-        const notificationManager = new NotificationManager();
-        notificationManager.init();
+        // 通知初期化を待つ（重要！）
+        try {
+            const notificationManager = new NotificationManager();
+            await notificationManager.init();
+            console.log('✅ Notifications initialized');
+        } catch (error) {
+            console.error('❌ Notification initialization failed:', error);
+        }
 
         if (!dashboardContainer.dataset.initialized) {
             console.log("HanaView Dashboard Initialized");
@@ -233,7 +239,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await response.json();
             if (response.ok && data.success) {
                 await AuthManager.setAuthData(data.token, data.expires_in, data.permission);
-                showDashboard();
+                await showDashboard();  // ← awaitを追加
             } else {
                 failedAttempts++;
                 pinInputs.forEach(input => input.value = '');

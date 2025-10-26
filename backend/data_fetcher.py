@@ -1569,11 +1569,21 @@ class MarketDataFetcher:
 
             subscriptions_file = os.path.join(DATA_DIR, 'push_subscriptions.json')
             if not os.path.exists(subscriptions_file):
+                logger.warning(f"❌ Push subscriptions file not found: {subscriptions_file}")
+                logger.info("💡 Users need to re-login and grant notification permission")
+                logger.info("No push subscriptions found")
+                return 0
+
+            # ファイルサイズ確認（追加）
+            file_size = os.path.getsize(subscriptions_file)
+            if file_size == 0:
+                logger.warning(f"❌ Push subscriptions file is empty")
                 logger.info("No push subscriptions found")
                 return 0
 
             with open(subscriptions_file, 'r') as f:
                 subscriptions = json.load(f)
+            logger.info(f"📁 Reading {len(subscriptions)} subscriptions")
 
             if not subscriptions:
                 logger.info("No active push subscriptions")
