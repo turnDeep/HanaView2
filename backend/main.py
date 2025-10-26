@@ -457,6 +457,25 @@ async def analyze_ticker(ticker: str, force: bool = False, current_user: str = D
         logger.error(f"Error analyzing ticker {ticker}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"分析中に予期せぬエラーが発生しました。")
 
+@app.get("/api/debug/subscriptions")
+def debug_subscriptions(current_user: str = Depends(get_current_user)):
+    """開発用: サブスクリプションの状態を確認"""
+    subscriptions_file = os.path.join(DATA_DIR, 'push_subscriptions.json')
+    if not os.path.exists(subscriptions_file):
+        return {"status": "no_file", "subscriptions": {}}
+
+    with open(subscriptions_file, 'r') as f:
+        subs = json.load(f)
+
+    return {
+        "status": "ok",
+        "count": len(subs),
+        "subscriptions": {
+            sub_id: {"permission": data.get("permission"), "endpoint": data.get("endpoint", "")[:50]}
+            for sub_id, data in subs.items()
+        }
+    }
+
 # Mount the frontend directory to serve static files
 # This must come AFTER all API routes
 app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="static")

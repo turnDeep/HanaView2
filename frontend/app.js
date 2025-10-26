@@ -117,11 +117,26 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- Main App Logic ---
+    let globalNotificationManager = null;
 
     async function initializeApp() {
+        // ✅ 古い認証データのクリーンアップ
+        if (localStorage.getItem('auth_token') && !localStorage.getItem('auth_permission')) {
+            console.log('🧹 Cleaning old authentication data...');
+            await AuthManager.clearAuthData();
+            // Service Workerの登録も解除
+            if ('serviceWorker' in navigator) {
+                const registrations = await navigator.serviceWorker.getRegistrations();
+                for (let registration of registrations) {
+                    await registration.unregister();
+                }
+            }
+            alert('⚠️ 認証システムが更新されました。再度ログインしてください。');
+        }
+
         try {
             if (AuthManager.isAuthenticated()) {
-                await showDashboard();  // ← awaitを追加
+                await showDashboard();
             } else {
                 showAuthScreen();
             }
@@ -158,13 +173,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
         applyTabPermissions();
 
-        // 通知初期化を待つ（重要！）
-        try {
-            const notificationManager = new NotificationManager();
-            await notificationManager.init();
-            console.log('✅ Notifications initialized');
-        } catch (error) {
-            console.error('❌ Notification initialization failed:', error);
+        if (!globalNotificationManager) {
+            globalNotificationManager = new NotificationManager();
+            try {
+                await globalNotificationManager.init();
+                console.log('✅ Notifications initialized');
+            } catch (error) {
+                console.error('❌ Notification initialization failed:', error);
+                alert('⚠️ Push通知の登録に失敗しました。ページを再読み込みしてください。');
+            }
         }
 
         if (!dashboardContainer.dataset.initialized) {
@@ -239,7 +256,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await response.json();
             if (response.ok && data.success) {
                 await AuthManager.setAuthData(data.token, data.expires_in, data.permission);
-                await showDashboard();  // ← awaitを追加
+                console.log('✅ Authentication complete, token saved');
+                await showDashboard();
             } else {
                 failedAttempts++;
                 pinInputs.forEach(input => input.value = '');
@@ -952,18 +970,33 @@ class NotificationManager {
 
     async sendSubscriptionToServer(subscription) {
         try {
+            // ✅ トークンが利用可能か確認
+            if (!AuthManager.isAuthenticated()) {
+                console.warn('Cannot register push subscription: not authenticated');
+                return;
+            }
+
+            console.log('📤 Sending push subscription to server...');
             const response = await fetchWithAuth('/api/subscribe', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(subscription)
             });
+
             if (!response.ok) {
-                throw new Error(`Server returned ${response.status}`);
+                const errorText = await response.text();
+                throw new Error(`Server returned ${response.status}: ${errorText}`);
             }
+
             const result = await response.json();
-            console.log('Push subscription registered:', result);
+            console.log('✅ Push subscription registered:', result);
+
+            // ✅ ユーザーに成功を通知
+            this.showInAppNotification(`通知が有効になりました (権限: ${result.permission})`);
         } catch (error) {
-            console.error('Error sending subscription to server:', error);
+            console.error('❌ Error sending subscription to server:', error);
+            // ✅ ユーザーにエラーを通知
+            alert(`⚠️ Push通知の登録に失敗しました: ${error.message}\n\nページを再読み込みして再度お試しください。`);
         }
     }
 
