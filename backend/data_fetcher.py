@@ -23,7 +23,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # --- Constants ---
-DATA_DIR = 'data'
+# 絶対パスで定義（cronからの実行でも正しく動作するように）
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
 RAW_DATA_PATH = os.path.join(DATA_DIR, 'data_raw.json')
 FINAL_DATA_PATH_PREFIX = os.path.join(DATA_DIR, 'data_')
 
