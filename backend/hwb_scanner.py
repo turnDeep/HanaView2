@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from .hwb_data_manager import HWBDataManager
 import logging
 import warnings
+from .rs_calculator import RSCalculator
 
 warnings.filterwarnings("ignore")
 logger = logging.getLogger(__name__)
@@ -327,6 +328,53 @@ class HWBScanner:
     def __init__(self):
         self.data_manager = HWBDataManager()
         self.analyzer = HWBAnalyzer()
+        self.benchmark_df = None  # ベンチマークデータをキャッシュ
+
+    def _get_benchmark_data(self):
+        """S&P500（SPY）データをベンチマークとして取得"""
+        if self.benchmark_df is not None:
+            return self.benchmark_df
+
+        try:
+            logger.info("Loading S&P500 (SPY) benchmark data...")
+            data = self.data_manager.get_stock_data_with_cache('SPY', lookback_years=10)
+            if data:
+                self.benchmark_df, _ = data
+                logger.info(f"Benchmark data loaded: {len(self.benchmark_df)} days")
+            return self.benchmark_df
+        except Exception as e:
+            logger.error(f"Failed to load benchmark data: {e}")
+            return None
+
+    def _calculate_rs_rating_at_date(self, df_daily: pd.DataFrame, target_date: pd.Timestamp) -> Optional[float]:
+        """指定日時点でのRS Ratingを計算"""
+        try:
+            benchmark_df = self._get_benchmark_data()
+            if benchmark_df is None:
+                logger.warning("Benchmark data not available for RS calculation")
+                return None
+
+            # target_date以前のデータのみを使用
+            df_historical = df_daily[df_daily.index <= target_date].copy()
+            benchmark_historical = benchmark_df[benchmark_df.index <= target_date].copy()
+
+            # 最低252日のデータが必要
+            if len(df_historical) < 252 or len(benchmark_historical) < 252:
+                logger.debug(f"Insufficient data for RS calculation at {target_date}")
+                return None
+
+            # RSCalculatorを使用してRS Ratingを計算
+            rs_calc = RSCalculator(df_historical, benchmark_historical)
+            rs_score_series = rs_calc.calculate_ibd_rs_score()
+            current_rs_score = rs_score_series.iloc[-1]
+            rs_rating = rs_calc.calculate_percentile_rating(current_rs_score)
+
+            logger.debug(f"RS Rating calculated: {rs_rating:.0f}")
+            return round(rs_rating)
+
+        except Exception as e:
+            logger.error(f"Error calculating RS rating: {e}", exc_info=True)
+            return None
 
     async def scan_all_symbols(self, progress_callback=None):
         """全シンボルスキャン"""
@@ -398,20 +446,13 @@ class HWBScanner:
             logger.error(f"分析エラー: {symbol} - {e}", exc_info=True)
             return None
 
-    def _differential_analysis(
-        self, 
-        symbol: str, 
-        df_daily: pd.DataFrame, 
-        df_weekly: pd.DataFrame,
-        existing_data: dict,
-        latest_market_date: datetime.date
-    ) -> Optional[List[Dict]]:
-        """差分分析（bot_hwb.py方式に統一）"""
+    def _differential_analysis(self, symbol: str, df_daily: pd.DataFrame, df_weekly: pd.DataFrame,
+                              existing_data: dict, latest_market_date: datetime.date) -> Optional[List[Dict]]:
+        """差分分析（RS Rating追加版）"""
         existing_setups = existing_data.get('setups', [])
         existing_fvgs = existing_data.get('fvgs', [])
         existing_signals = existing_data.get('signals', [])
         
-        # 日付変換
         for item in existing_setups + existing_fvgs + existing_signals:
             if 'date' in item:
                 item['date'] = pd.to_datetime(item['date'])
@@ -449,9 +490,7 @@ class HWBScanner:
                     search_start = setup_idx + 2
                 
                 search_end = min(setup_idx + FVG_MAX_SEARCH_DAYS, len(df_daily) - 1)
-                new_data_start = df_daily.index.searchsorted(
-                    pd.Timestamp(last_analyzed_date) + pd.Timedelta(days=1)
-                )
+                new_data_start = df_daily.index.searchsorted(pd.Timestamp(last_analyzed_date) + pd.Timedelta(days=1))
                 search_start = max(search_start, new_data_start)
                 
                 if search_start >= search_end:
@@ -475,20 +514,24 @@ class HWBScanner:
                 
                 fvg_date = fvg['formation_date']
                 fvg_idx = df_daily.index.get_loc(fvg_date)
-                new_data_start = df_daily.index.searchsorted(
-                    pd.Timestamp(last_analyzed_date) + pd.Timedelta(days=1)
-                )
+                new_data_start = df_daily.index.searchsorted(pd.Timestamp(last_analyzed_date) + pd.Timedelta(days=1))
                 check_start = max(fvg_idx + 1, new_data_start)
                 
                 if check_start >= len(df_daily):
                     continue
                 
-                breakout = self._check_breakout_in_range(
-                    df_daily, setup, fvg, check_start, len(df_daily)
-                )
+                breakout = self._check_breakout_in_range(df_daily, setup, fvg, check_start, len(df_daily))
                 
                 if breakout and breakout.get('status') == 'breakout':
+                    # ✅ RS Ratingを計算
+                    breakout_date = pd.to_datetime(breakout['breakout_date'])
+                    rs_rating = self._calculate_rs_rating_at_date(df_daily, breakout_date)
+
                     signal = {**fvg, **breakout}
+                    if rs_rating is not None:
+                        signal['rs_rating'] = rs_rating
+                        logger.info(f"{symbol}: RS Rating at breakout = {rs_rating}")
+
                     existing_data['signals'].append(signal)
                     
                     setup['status'] = 'consumed'
@@ -507,15 +550,8 @@ class HWBScanner:
         # 新規セットアップ探索
         if not active_setups or all(s.get('status') == 'consumed' for s in existing_setups):
             logger.info(f"{symbol}: 新セットアップ探索")
-            
             new_start_date = pd.Timestamp(last_analyzed_date) + pd.Timedelta(days=1)
-            
-            new_setups = self.analyzer.optimized_rule2_setups(
-                df_daily, 
-                df_weekly,
-                full_scan=False,
-                scan_start_date=new_start_date
-            )
+            new_setups = self.analyzer.optimized_rule2_setups(df_daily, df_weekly, full_scan=False, scan_start_date=new_start_date)
             
             if new_setups:
                 existing_data['setups'].extend(new_setups)
@@ -528,22 +564,12 @@ class HWBScanner:
         
         return self._create_summary_from_existing(existing_data, latest_market_date)
 
-    def _full_analysis(
-        self,
-        symbol: str,
-        df_daily: pd.DataFrame,
-        df_weekly: pd.DataFrame,
-        latest_market_date: datetime.date
-    ) -> Optional[List[Dict]]:
-        """初回フルスキャン（bot_hwb.py方式に統一）"""
+    def _full_analysis(self, symbol: str, df_daily: pd.DataFrame, df_weekly: pd.DataFrame,
+                      latest_market_date: datetime.date) -> Optional[List[Dict]]:
+        """初回フルスキャン（RS Rating追加版）"""
         logger.info(f"{symbol}: 初回フルスキャン（全期間：{len(df_daily)}日分）")
         
-        # Rule ②: セットアップ検出（全期間、週足フィルター統合）
-        setups = self.analyzer.optimized_rule2_setups(
-            df_daily, 
-            df_weekly, 
-            full_scan=True
-        )
+        setups = self.analyzer.optimized_rule2_setups(df_daily, df_weekly, full_scan=True)
         
         if not setups:
             logger.info(f"{symbol}: セットアップなし（全期間）")
@@ -557,7 +583,6 @@ class HWBScanner:
         for s in setups:
             s['date'] = pd.to_datetime(s['date'])
 
-        # 各セットアップに対してFVG検出 → ブレイクアウト検出
         for setup in setups:
             if setup['id'] in consumed_setups:
                 setup['status'] = 'consumed'
@@ -572,15 +597,20 @@ class HWBScanner:
                     all_fvgs.append(fvg)
                     continue
 
-                breakout = self.analyzer.optimized_breakout_detection_all_periods(
-                    df_daily, setup, fvg
-                )
+                breakout = self.analyzer.optimized_breakout_detection_all_periods(df_daily, setup, fvg)
 
                 if breakout:
                     if breakout.get('status') == 'breakout':
+                        # ✅ RS Ratingを計算（ブレイクアウト時点）
+                        breakout_date = pd.to_datetime(breakout['breakout_date'])
+                        rs_rating = self._calculate_rs_rating_at_date(df_daily, breakout_date)
+
                         signal = {**fvg, **breakout}
-                        all_signals.append(signal)
+                        if rs_rating is not None:
+                            signal['rs_rating'] = rs_rating
+                            logger.info(f"{symbol}: RS Rating at breakout = {rs_rating}")
                         
+                        all_signals.append(signal)
                         consumed_setups.add(setup['id'])
                         consumed_fvgs.add(fvg['id'])
                         fvg['status'] = 'consumed'
@@ -661,15 +691,15 @@ class HWBScanner:
         
         return fvgs
 
-    def _check_breakout_in_range(self, df_daily: pd.DataFrame, setup: Dict, fvg: Dict, start_idx: int, end_idx: int) -> Optional[Dict]:
-        """指定範囲内でブレイクアウトチェック（bot_hwb.py方式）"""
+    def _check_breakout_in_range(self, df_daily: pd.DataFrame, setup: Dict, fvg: Dict,
+                                 start_idx: int, end_idx: int) -> Optional[Dict]:
+        """指定範囲内でブレイクアウトチェック（RS Rating追加版）"""
         try:
             setup_idx = df_daily.index.get_loc(setup['date'])
             fvg_idx = df_daily.index.get_loc(fvg['formation_date'])
         except KeyError:
             return None
         
-        # レジスタンス計算（bot_hwb.py方式：単純な最高値）
         resistance_start_idx = setup_idx + 1
         resistance_end_idx = fvg_idx
         
@@ -684,7 +714,6 @@ class HWBScanner:
         
         resistance_high = resistance_data['high'].max()
         
-        # 固定閾値0.1%でブレイクアウトチェック
         for i in range(start_idx, end_idx):
             current = df_daily.iloc[i]
             if current['close'] > resistance_high * (1 + BREAKOUT_THRESHOLD):
@@ -698,68 +727,49 @@ class HWBScanner:
         
         return None
 
-    def _save_symbol_data_with_chart(self, symbol: str, symbol_data: dict, df_daily: pd.DataFrame, df_weekly: pd.DataFrame):
-        """日付変換とチャートデータ付きで保存"""
-        def stringify_dates(d):
-            for k, v in d.items():
-                if isinstance(v, pd.Timestamp):
-                    d[k] = v.strftime('%Y-%m-%d')
-            return d
-        
-        symbol_data['setups'] = [stringify_dates(s.copy()) for s in symbol_data['setups']]
-        symbol_data['fvgs'] = [stringify_dates(f.copy()) for f in symbol_data['fvgs']]
-        symbol_data['signals'] = [stringify_dates(s.copy()) for s in symbol_data['signals']]
-        
-        symbol_data['chart_data'] = self._generate_lightweight_chart_data(symbol_data, df_daily, df_weekly)
-        self.data_manager.save_symbol_data(symbol, symbol_data)
-
-    def _create_summary_from_existing(self, existing_data: dict, latest_market_date: datetime.date) -> List[Dict]:
-        """既存データからサマリー作成"""
-        symbol = existing_data['symbol']
-        signals = existing_data.get('signals', [])
-        fvgs = existing_data.get('fvgs', [])
-        return self._create_summary_from_data(symbol, signals, fvgs, latest_market_date)
-
-    def _create_summary_from_data(self, symbol: str, signals: list, fvgs: list, latest_market_date: datetime.date) -> List[Dict]:
-        """シグナルとFVGからサマリー作成（3カテゴリ対応、スコアリング削除）"""
+    def _create_summary_from_data(self, symbol: str, signals: list, fvgs: list,
+                                 latest_market_date: datetime.date) -> List[Dict]:
+        """シグナルとFVGからサマリー作成（RS Rating保持）"""
         summary_results = []
         today = latest_market_date
         
-        # 営業日計算（土日を除外した5営業日前）
         business_days_back = 0
         current_date = today
         while business_days_back < 5:
             current_date -= timedelta(days=1)
-            if current_date.weekday() < 5:  # 月〜金
+            if current_date.weekday() < 5:
                 business_days_back += 1
         five_business_days_ago = current_date
 
-        # ① 当日ブレイクアウト
-        # ③ 直近5営業日以内のブレイクアウト（当日除く）
         for signal in signals:
             breakout_date_str = signal.get('breakout_date')
             if breakout_date_str:
                 try:
                     breakout_date = pd.to_datetime(breakout_date_str).date()
 
+                    summary_item = {
+                        "symbol": symbol,
+                        "signal_type": "",
+                        "category": ""
+                    }
+
+                    # ✅ RS Ratingを含める
+                    if 'rs_rating' in signal:
+                        summary_item['rs_rating'] = signal['rs_rating']
+
                     if breakout_date == today:
-                        summary_results.append({
-                            "symbol": symbol,
-                            "signal_type": "signal_today",
-                            "signal_date": breakout_date_str,
-                            "category": "当日ブレイクアウト"
-                        })
+                        summary_item["signal_type"] = "signal_today"
+                        summary_item["signal_date"] = breakout_date_str
+                        summary_item["category"] = "当日ブレイクアウト"
+                        summary_results.append(summary_item)
                     elif five_business_days_ago <= breakout_date < today:
-                        summary_results.append({
-                            "symbol": symbol,
-                            "signal_type": "signal_recent",
-                            "signal_date": breakout_date_str,
-                            "category": "直近5営業日以内"
-                        })
+                        summary_item["signal_type"] = "signal_recent"
+                        summary_item["signal_date"] = breakout_date_str
+                        summary_item["category"] = "直近5営業日以内"
+                        summary_results.append(summary_item)
                 except Exception as e:
                     logger.warning(f"Failed to parse breakout_date for {symbol}: {e}")
         
-        # ② 過去5営業日以内のアクティブなFVG（スコアリング削除）
         for fvg in fvgs:
             if fvg.get('status') == 'active':
                 formation_date_str = fvg.get('formation_date')

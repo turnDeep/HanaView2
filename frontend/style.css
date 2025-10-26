@@ -1075,3 +1075,41 @@ body {
         text-align: left;
     }
 }
+
+/* RS Rating バッジスタイル */
+.hwb-rs-badge {
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-weight: 600;
+    font-size: 0.8em;
+    margin: 0 5px;
+    white-space: nowrap;
+}
+
+.rs-excellent {
+    background-color: #28a745;
+    color: white;
+}
+
+.rs-good {
+    background-color: #17a2b8;
+    color: white;
+}
+
+.rs-average {
+    background-color: #ffc107;
+    color: #333;
+}
+
+.rs-weak {
+    background-color: #6c757d;
+    color: white;
+}
+
+/* モバイル対応 */
+@media (max-width: 768px) {
+    .hwb-rs-badge {
+        padding: 3px 8px;
+        font-size: 0.75em;
+    }
+}

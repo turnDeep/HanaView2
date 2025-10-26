@@ -745,44 +745,60 @@ async function showDashboard() {
             }
         }
 
-        renderSymbolList(container, title, items, type) {
-            const section = document.createElement('div');
-            section.className = 'hwb-symbol-section';
-            section.innerHTML = `<h2>${title}</h2>`;
+// renderSymbolListメソッドを修正
+renderSymbolList(container, title, items, type) {
+    const section = document.createElement('div');
+    section.className = 'hwb-symbol-section';
+    section.innerHTML = `<h2>${title}</h2>`;
 
-            const list = document.createElement('div');
-            list.className = 'hwb-symbol-list';
+    const list = document.createElement('div');
+    list.className = 'hwb-symbol-list';
 
-            items.forEach(item => {
-                const symbolItem = document.createElement('div');
-                symbolItem.className = 'hwb-symbol-item';
+    items.forEach(item => {
+        const symbolItem = document.createElement('div');
+        symbolItem.className = 'hwb-symbol-item';
 
-                let badgeText = '';
-                let badgeClass = '';
-                let dateInfo = '';
+        let badgeText = '';
+        let badgeClass = '';
+        let dateInfo = '';
+        let rsRatingHtml = '';
 
-                if (type === 'signal_today' || type === 'signal_recent') {
-                    badgeText = 'ブレイクアウト';
-                    badgeClass = 'badge-signal';
-                    dateInfo = item.signal_date;
-                } else {
-                    // スコアリング削除：シンプルなFVGバッジに変更
-                    badgeText = '🐮';
-                    badgeClass = 'badge-candidate';
-                    dateInfo = item.fvg_date;
-                }
+        if (type === 'signal_today' || type === 'signal_recent') {
+            badgeText = 'ブレイクアウト';
+            badgeClass = 'badge-signal';
+            dateInfo = item.signal_date;
 
-                symbolItem.innerHTML = `
-                    <span class="hwb-symbol-name">${item.symbol}</span>
-                    <span class="hwb-symbol-badge ${badgeClass}">${badgeText}</span>
-                    <span class="hwb-symbol-date">${dateInfo}</span>
-                `;
-                list.appendChild(symbolItem);
-            });
-
-            section.appendChild(list);
-            container.appendChild(section);
+            // ✅ RS Ratingの表示
+            if (item.rs_rating !== undefined && item.rs_rating !== null) {
+                const rsClass = this.getRSClass(item.rs_rating);
+                rsRatingHtml = `<span class="hwb-rs-badge ${rsClass}">RS ${item.rs_rating}</span>`;
+            }
+        } else {
+            badgeText = '🐮';
+            badgeClass = 'badge-candidate';
+            dateInfo = item.fvg_date;
         }
+
+        symbolItem.innerHTML = `
+            <span class="hwb-symbol-name">${item.symbol}</span>
+            <span class="hwb-symbol-badge ${badgeClass}">${badgeText}</span>
+            ${rsRatingHtml}
+            <span class="hwb-symbol-date">${dateInfo}</span>
+        `;
+        list.appendChild(symbolItem);
+    });
+
+    section.appendChild(list);
+    container.appendChild(section);
+}
+
+// ✅ RS Ratingの色分けメソッドを追加
+getRSClass(rsRating) {
+    if (rsRating >= 90) return 'rs-excellent';  // 緑
+    if (rsRating >= 80) return 'rs-good';       // 青
+    if (rsRating >= 70) return 'rs-average';    // 黄
+    return 'rs-weak';                           // 灰色
+}
 
         showStatus(message, type = 'info') {
             const statusDiv = document.getElementById('hwb-status');
