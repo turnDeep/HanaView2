@@ -168,32 +168,52 @@ class NotificationManager {
     }
 
     async sendSubscriptionToServer(subscription) {
-        try {
-            if (!AuthManager.isAuthenticated()) {
-                console.warn('Cannot register push subscription: not authenticated');
-                return;
-            }
-
-            console.log('📤 Sending push subscription to server...');
-            const response = await fetchWithAuth('/api/subscribe', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(subscription)
-            });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`Server returned ${response.status}: ${errorText}`);
-            }
-
-            const result = await response.json();
-            console.log('✅ Push subscription registered:', result);
-            this.showInAppNotification(`通知が有効になりました (権限: ${result.permission})`);
-        } catch (error) {
-            console.error('❌ Error sending subscription to server:', error);
-            alert(`⚠️ Push通知の登録に失敗しました: ${error.message}\n\nページを再読み込みして再度お試しください。`);
+    try {
+        // AuthManagerが存在するか確認（iPhone PWA対策）
+        if (typeof AuthManager === 'undefined') {
+            console.error('❌ AuthManager is not defined yet');
+            throw new Error('認証マネージャーが読み込まれていません。ページを再読み込みしてください。');
         }
+
+        if (!AuthManager.isAuthenticated()) {
+            console.warn('Cannot register push subscription: not authenticated');
+            return;
+        }
+
+        console.log('📤 Sending push subscription to server...');
+
+        // fetchWithAuthも存在確認（念のため）
+        if (typeof fetchWithAuth === 'undefined') {
+            console.error('❌ fetchWithAuth is not defined yet');
+            throw new Error('通信機能が読み込まれていません。ページを再読み込みしてください。');
+        }
+
+        const response = await fetchWithAuth('/api/subscribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(subscription)
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Server returned ${response.status}: ${errorText}`);
+        }
+
+        const result = await response.json();
+        console.log('✅ Push subscription registered:', result);
+        this.showInAppNotification(`通知が有効になりました (権限: ${result.permission})`);
+    } catch (error) {
+        console.error('❌ Error sending subscription to server:', error);
+
+        // より詳細なエラーメッセージ
+        let errorMessage = error.message || '不明なエラー';
+        if (error.message.includes('認証マネージャー') || error.message.includes('通信機能')) {
+            errorMessage += '\n\niPhone PWAでこの問題が発生する場合：\n1. アプリを完全に終了\n2. Safariでページを開き直す\n3. 再度ホーム画面に追加';
+        }
+
+        alert(`⚠️ Push通知の登録に失敗しました:\n${errorMessage}`);
     }
+}
 
     urlBase64ToUint8Array(base64String) {
         const padding = '='.repeat((4 - base64String.length % 4) % 4);
@@ -312,36 +332,45 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    async function showDashboard() {
-        if (authContainer) authContainer.style.display = 'none';
-        if (dashboardContainer) dashboardContainer.style.display = 'block';
+async function showDashboard() {
+    if (authContainer) authContainer.style.display = 'none';
+    if (dashboardContainer) dashboardContainer.style.display = 'block';
 
-        applyTabPermissions();
+    applyTabPermissions();
 
-        if (!globalNotificationManager) {
-            globalNotificationManager = new NotificationManager();
-            try {
-                await globalNotificationManager.init();
-                console.log('✅ Notifications initialized');
-            } catch (error) {
-                console.error('❌ Notification initialization failed:', error);
-                alert('⚠️ Push通知の登録に失敗しました。ページを再読み込みしてください。');
-            }
-        }
+    // NotificationManager初期化前に必要な依存関係を確認
+    if (typeof AuthManager === 'undefined' || typeof fetchWithAuth === 'undefined') {
+        console.error('❌ Required dependencies not loaded. Skipping notification setup.');
+        alert('⚠️ アプリの初期化に問題があります。ページを再読み込みしてください。');
+        return;
+    }
 
-        if (!dashboardContainer.dataset.initialized) {
-            console.log("HanaView Dashboard Initialized");
-            initTabs();
-            fetchDataAndRender();
-            initSwipeNavigation();
-
-            if (document.getElementById('hwb200-content')) {
-                initHWB200MA();
-            }
-
-            dashboardContainer.dataset.initialized = 'true';
+    if (!globalNotificationManager) {
+        globalNotificationManager = new NotificationManager();
+        try {
+            // 少し待機してからNotificationManagerを初期化（iPhone PWA対策）
+            await new Promise(resolve => setTimeout(resolve, 100));
+            await globalNotificationManager.init();
+            console.log('✅ Notifications initialized');
+        } catch (error) {
+            console.error('❌ Notification initialization failed:', error);
+            alert('⚠️ Push通知の登録に失敗しました。ページを再読み込みしてください。');
         }
     }
+
+    if (!dashboardContainer.dataset.initialized) {
+        console.log("HanaView Dashboard Initialized");
+        initTabs();
+        fetchDataAndRender();
+        initSwipeNavigation();
+
+        if (document.getElementById('hwb200-content')) {
+            initHWB200MA();
+        }
+
+        dashboardContainer.dataset.initialized = 'true';
+    }
+}
 
     function showAuthScreen() {
         if (authContainer) authContainer.style.display = 'flex';
