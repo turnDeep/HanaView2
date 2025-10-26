@@ -132,6 +132,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
             alert('⚠️ 認証システムが更新されました。再度ログインしてください。');
+            // ✅ ページをリロードしてService Workerを再登録
+            location.reload();
+            return; // これ以降の処理を実行しない
         }
 
         try {
