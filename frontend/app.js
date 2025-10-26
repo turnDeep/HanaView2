@@ -1,3 +1,105 @@
+// --- IndexedDB & Auth Config ---
+const DB_NAME = 'HanaViewDB';
+const DB_VERSION = 1;
+const TOKEN_STORE_NAME = 'auth-tokens';
+
+// --- Authentication Management (with IndexedDB support) ---
+class AuthManager {
+    static TOKEN_KEY = 'auth_token';
+    static EXPIRY_KEY = 'auth_expiry';
+    static PERMISSION_KEY = 'auth_permission';
+
+    static async setTokenInDB(token) {
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open(DB_NAME, DB_VERSION);
+            request.onerror = () => reject("Error opening DB for token storage");
+            request.onupgradeneeded = event => {
+                const db = event.target.result;
+                if (!db.objectStoreNames.contains(TOKEN_STORE_NAME)) {
+                    db.createObjectStore(TOKEN_STORE_NAME, { keyPath: 'id' });
+                }
+            };
+            request.onsuccess = event => {
+                const db = event.target.result;
+                const transaction = db.transaction([TOKEN_STORE_NAME], 'readwrite');
+                const store = transaction.objectStore(TOKEN_STORE_NAME);
+                if (token) {
+                    store.put({ id: 'auth_token', value: token });
+                } else {
+                    store.delete('auth_token');
+                }
+                transaction.oncomplete = () => resolve();
+                transaction.onerror = () => reject("Error storing token in DB");
+            };
+        });
+    }
+
+    static async setAuthData(token, expiresIn, permission) {
+        localStorage.setItem(this.TOKEN_KEY, token);
+        const expiryTime = Date.now() + (expiresIn * 1000);
+        localStorage.setItem(this.EXPIRY_KEY, expiryTime.toString());
+        localStorage.setItem(this.PERMISSION_KEY, permission);
+        try {
+            await this.setTokenInDB(token);
+            console.log(`Auth token and permission (${permission}) stored. Expires at:`, new Date(expiryTime).toLocaleString());
+        } catch (error) {
+            console.error("Failed to store token in IndexedDB:", error);
+        }
+    }
+
+    static getToken() {
+        const token = localStorage.getItem(this.TOKEN_KEY);
+        const expiry = localStorage.getItem(this.EXPIRY_KEY);
+        if (!token || !expiry || Date.now() > parseInt(expiry)) {
+            if (token) this.clearAuthData();
+            return null;
+        }
+        return token;
+    }
+
+    static getPermission() {
+        return localStorage.getItem(this.PERMISSION_KEY);
+    }
+
+    static async clearAuthData() {
+        localStorage.removeItem(this.TOKEN_KEY);
+        localStorage.removeItem(this.EXPIRY_KEY);
+        localStorage.removeItem(this.PERMISSION_KEY);
+        try {
+            await this.setTokenInDB(null);
+            console.log('Auth data cleared from localStorage and IndexedDB');
+        } catch (error) {
+            console.error("Failed to clear token from IndexedDB:", error);
+        }
+    }
+
+    static isAuthenticated() {
+        return this.getToken() !== null;
+    }
+
+    static getAuthHeaders() {
+        const token = this.getToken();
+        return token ? { 'Authorization': `Bearer ${token}` } : {};
+    }
+}
+
+// --- Authenticated Fetch Wrapper ---
+async function fetchWithAuth(url, options = {}) {
+    const authHeaders = AuthManager.getAuthHeaders();
+    const response = await fetch(url, {
+        ...options,
+        headers: { ...options.headers, ...authHeaders }
+    });
+
+    if (response.status === 401) {
+        console.log('Authentication failed (401), redirecting to auth screen');
+        await AuthManager.clearAuthData();
+        window.dispatchEvent(new CustomEvent('auth-required'));
+        throw new Error('Authentication required');
+    }
+    return response;
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     console.log("HanaView App Initializing...");
 
@@ -14,107 +116,9 @@ document.addEventListener('DOMContentLoaded', () => {
     let failedAttempts = 0;
     const MAX_ATTEMPTS = 5;
 
-    // --- IndexedDB & Auth Config ---
-    const DB_NAME = 'HanaViewDB';
-    const DB_VERSION = 1;
-    const TOKEN_STORE_NAME = 'auth-tokens';
-
-    // --- Authentication Management (with IndexedDB support) ---
-    class AuthManager {
-        static TOKEN_KEY = 'auth_token';
-        static EXPIRY_KEY = 'auth_expiry';
-        static PERMISSION_KEY = 'auth_permission';
-
-        static async setTokenInDB(token) {
-            return new Promise((resolve, reject) => {
-                const request = indexedDB.open(DB_NAME, DB_VERSION);
-                request.onerror = () => reject("Error opening DB for token storage");
-                request.onupgradeneeded = event => {
-                    const db = event.target.result;
-                    if (!db.objectStoreNames.contains(TOKEN_STORE_NAME)) {
-                        db.createObjectStore(TOKEN_STORE_NAME, { keyPath: 'id' });
-                    }
-                };
-                request.onsuccess = event => {
-                    const db = event.target.result;
-                    const transaction = db.transaction([TOKEN_STORE_NAME], 'readwrite');
-                    const store = transaction.objectStore(TOKEN_STORE_NAME);
-                    if (token) {
-                        store.put({ id: 'auth_token', value: token });
-                    } else {
-                        store.delete('auth_token');
-                    }
-                    transaction.oncomplete = () => resolve();
-                    transaction.onerror = () => reject("Error storing token in DB");
-                };
-            });
-        }
-
-        static async setAuthData(token, expiresIn, permission) {
-            localStorage.setItem(this.TOKEN_KEY, token);
-            const expiryTime = Date.now() + (expiresIn * 1000);
-            localStorage.setItem(this.EXPIRY_KEY, expiryTime.toString());
-            localStorage.setItem(this.PERMISSION_KEY, permission);
-            try {
-                await this.setTokenInDB(token);
-                console.log(`Auth token and permission (${permission}) stored. Expires at:`, new Date(expiryTime).toLocaleString());
-            } catch (error) {
-                console.error("Failed to store token in IndexedDB:", error);
-            }
-        }
-
-        static getToken() {
-            const token = localStorage.getItem(this.TOKEN_KEY);
-            const expiry = localStorage.getItem(this.EXPIRY_KEY);
-            if (!token || !expiry || Date.now() > parseInt(expiry)) {
-                if (token) this.clearAuthData();
-                return null;
-            }
-            return token;
-        }
-
-        static getPermission() {
-            return localStorage.getItem(this.PERMISSION_KEY);
-        }
-
-        static async clearAuthData() {
-            localStorage.removeItem(this.TOKEN_KEY);
-            localStorage.removeItem(this.EXPIRY_KEY);
-            localStorage.removeItem(this.PERMISSION_KEY);
-            try {
-                await this.setTokenInDB(null);
-                console.log('Auth data cleared from localStorage and IndexedDB');
-            } catch (error) {
-                console.error("Failed to clear token from IndexedDB:", error);
-            }
-        }
-
-        static isAuthenticated() {
-            return this.getToken() !== null;
-        }
-
-        static getAuthHeaders() {
-            const token = this.getToken();
-            return token ? { 'Authorization': `Bearer ${token}` } : {};
-        }
-    }
-
-    // --- Authenticated Fetch Wrapper ---
-    async function fetchWithAuth(url, options = {}) {
-        const authHeaders = AuthManager.getAuthHeaders();
-        const response = await fetch(url, {
-            ...options,
-            headers: { ...options.headers, ...authHeaders }
-        });
-
-        if (response.status === 401) {
-            console.log('Authentication failed (401), redirecting to auth screen');
-            await AuthManager.clearAuthData();
-            showAuthScreen();
-            throw new Error('Authentication required');
-        }
-        return response;
-    }
+    window.addEventListener('auth-required', () => {
+        showAuthScreen();
+    });
 
     // --- Main App Logic ---
     let globalNotificationManager = null;
