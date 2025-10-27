@@ -349,9 +349,14 @@ class HWBScanner:
     def _calculate_rs_rating_at_date(self, df_daily: pd.DataFrame, target_date: pd.Timestamp) -> Optional[float]:
         """指定日時点でのRS Ratingを計算"""
         try:
+            # ✅ カラム名の確認
+            if 'close' not in df_daily.columns:
+                logger.warning(f"'close' column not found in dataframe. Available columns: {df_daily.columns.tolist()}")
+                return None
+
             benchmark_df = self._get_benchmark_data()
-            if benchmark_df is None:
-                logger.warning("Benchmark data not available for RS calculation")
+            if benchmark_df is None or 'close' not in benchmark_df.columns:
+                logger.warning("Benchmark data not available or missing 'close' column")
                 return None
 
             # target_date以前のデータのみを使用
@@ -788,6 +793,22 @@ class HWBScanner:
                         logger.warning(f"Failed to parse formation_date for {symbol}: {e}")
         
         return summary_results
+
+    def _save_symbol_data_with_chart(self, symbol: str, symbol_data: dict,
+                                 df_daily: pd.DataFrame, df_weekly: pd.DataFrame):
+        """
+        シンボルデータとチャートデータを保存
+        """
+        try:
+            # チャートデータ生成
+            chart_data = self._generate_lightweight_chart_data(symbol_data, df_daily, df_weekly)
+            symbol_data['chart_data'] = chart_data
+
+            # データ保存
+            self.data_manager.save_symbol_data(symbol, symbol_data)
+            logger.info(f"✅ Saved data for {symbol}")
+        except Exception as e:
+            logger.error(f"Failed to save data for {symbol}: {e}", exc_info=True)
 
     def _generate_lightweight_chart_data(self, symbol_data: dict, df_daily: pd.DataFrame, df_weekly: pd.DataFrame) -> dict:
         """チャートデータ生成"""
