@@ -74,7 +74,7 @@ class RSCalculator:
         Returns:
             pd.Series: RS Score時系列
         """
-        close = self.df['Close']
+        close = self.df['close']
         
         # 各期間のROCを計算
         roc_63 = self.calculate_roc(close, 63)    # 3ヶ月
@@ -140,8 +140,8 @@ class RSCalculator:
         if len(common_index) == 0:
             return pd.Series([100] * len(self.df), index=self.df.index)
         
-        stock_close = self.df.loc[common_index, 'Close']
-        benchmark_close = self.benchmark_df.loc[common_index, 'Close']
+        stock_close = self.df.loc[common_index, 'close']
+        benchmark_close = self.benchmark_df.loc[common_index, 'close']
         
         # RS Line計算
         rs_line = (stock_close / benchmark_close) * 100
@@ -218,7 +218,7 @@ class RSCalculator:
         Returns:
             dict: 各時間軸のRS情報
         """
-        close = self.df['Close']
+        close = self.df['close']
         
         timeframes = {
             '1M': 21,    # 約1ヶ月
@@ -237,8 +237,8 @@ class RSCalculator:
                 # ベンチマークとの比較
                 if len(self.benchmark_df) >= period + 1:
                     benchmark_roc = self.calculate_roc(
-                        self.benchmark_df['Close'], period
-                    ).iloc[-1] if len(self.benchmark_df['Close']) > period else 0
+                        self.benchmark_df['close'], period
+                    ).iloc[-1] if len(self.benchmark_df['close']) > period else 0
                     
                     outperformance = roc - benchmark_roc
                 else:
