@@ -859,6 +859,20 @@ body {
     padding: 15px;
     background-color: #f8f9fa;
     border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.hwb-summary-grid > div:hover {
+    background-color: #e9ecef;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.hwb-summary-grid > div.active {
+    background-color: #d1ecf1;
+    border: 2px solid #0fb1bd;
+    font-weight: bold;
 }
 
 .hwb-summary-grid h3 {
@@ -985,8 +999,8 @@ body {
 }
 
 .hwb-symbol-list {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
     gap: 12px;
 }
 
@@ -1087,22 +1101,22 @@ body {
 }
 
 .rs-excellent {
-    background-color: #28a745;
+    background-color: #00bcd4;  /* 水色 */
     color: white;
 }
 
 .rs-good {
-    background-color: #17a2b8;
-    color: white;
+    background-color: #b3e5fc;  /* 薄い水色 */
+    color: #333;
 }
 
 .rs-average {
-    background-color: #ffc107;
+    background-color: #fff9c4;  /* 薄い黄色 */
     color: #333;
 }
 
 .rs-weak {
-    background-color: #6c757d;
+    background-color: #9e9e9e;  /* 灰色 */
     color: white;
 }
 

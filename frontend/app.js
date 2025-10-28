@@ -502,6 +502,7 @@ async function showDashboard() {
         constructor() {
             this.summaryData = null;
             this.currentView = 'summary';
+            this.activeListType = 'signal_today'; // 初期値は当日ブレイクアウト
             this.initEventListeners();
         }
 
@@ -714,34 +715,55 @@ async function showDashboard() {
                     データ更新: ${displayDate} | 処理銘柄: ${total_scanned}
                 </div>
                 <div class="hwb-summary-grid">
-                    <div>
+                    <div class="summary-card ${this.activeListType === 'signal_today' ? 'active' : ''}" data-list-type="signal_today">
                         <h3>当日ブレイクアウト</h3>
                         <p class="summary-count">${todayCount}</p>
                     </div>
-                    <div>
+                    <div class="summary-card ${this.activeListType === 'signal_recent' ? 'active' : ''}" data-list-type="signal_recent">
                         <h3>直近5営業日</h3>
                         <p class="summary-count">${recentCount}</p>
                     </div>
-                    <div>
+                    <div class="summary-card ${this.activeListType === 'candidate' ? 'active' : ''}" data-list-type="candidate">
                         <h3>監視銘柄</h3>
                         <p class="summary-count">${candidatesCount}</p>
                     </div>
                 </div>
             `;
+
+            // クリックイベントを追加
+            const cards = summaryDiv.querySelectorAll('.summary-card');
+            cards.forEach(card => {
+                card.style.cursor = 'pointer';
+                card.addEventListener('click', () => {
+                    const listType = card.dataset.listType;
+                    this.activeListType = listType;
+                    this.refreshView();
+                });
+            });
+
             container.appendChild(summaryDiv);
         }
 
         renderLists(container) {
             const { signals_today = [], signals_recent = [], candidates = [] } = this.summaryData.summary;
 
-            if (signals_today.length > 0) {
+            // activeListTypeに応じて表示するリストを切り替え
+            if (this.activeListType === 'signal_today' && signals_today.length > 0) {
                 this.renderSymbolList(container, '当日ブレイクアウト', signals_today, 'signal_today');
-            }
-            if (signals_recent.length > 0) {
+            } else if (this.activeListType === 'signal_recent' && signals_recent.length > 0) {
                 this.renderSymbolList(container, '直近5営業日以内', signals_recent, 'signal_recent');
-            }
-            if (candidates.length > 0) {
+            } else if (this.activeListType === 'candidate' && candidates.length > 0) {
                 this.renderSymbolList(container, '監視銘柄', candidates, 'candidate');
+            }
+        }
+
+        // ビューをリフレッシュするメソッドを追加
+        refreshView() {
+            const container = document.getElementById('hwb-content');
+            if (container && this.summaryData) {
+                container.innerHTML = '';
+                this.renderSummary(container);
+                this.renderLists(container);
             }
         }
 
@@ -754,34 +776,39 @@ renderSymbolList(container, title, items, type) {
     const list = document.createElement('div');
     list.className = 'hwb-symbol-list';
 
-    items.forEach(item => {
+    // RS rating降順でソート（当日ブレイクアウトと直近5営業日の場合）
+    let sortedItems = [...items];
+    if (type === 'signal_today' || type === 'signal_recent') {
+        sortedItems.sort((a, b) => {
+            const rsA = a.rs_rating !== undefined && a.rs_rating !== null ? a.rs_rating : -1;
+            const rsB = b.rs_rating !== undefined && b.rs_rating !== null ? b.rs_rating : -1;
+            return rsB - rsA; // 降順
+        });
+    }
+
+    sortedItems.forEach(item => {
         const symbolItem = document.createElement('div');
         symbolItem.className = 'hwb-symbol-item';
 
-        let badgeText = '';
-        let badgeClass = '';
         let dateInfo = '';
         let rsRatingHtml = '';
 
         if (type === 'signal_today' || type === 'signal_recent') {
-            badgeText = 'ブレイクアウト';
-            badgeClass = 'badge-signal';
-            dateInfo = item.signal_date;
+            // 日付フォーマットを変更（T00:00:00を削除）
+            dateInfo = item.signal_date ? item.signal_date.split('T')[0] : '';
 
-            // ✅ RS Ratingの表示
+            // RS Ratingの表示
             if (item.rs_rating !== undefined && item.rs_rating !== null) {
                 const rsClass = this.getRSClass(item.rs_rating);
                 rsRatingHtml = `<span class="hwb-rs-badge ${rsClass}">RS ${item.rs_rating}</span>`;
             }
         } else {
-            badgeText = '🐮';
-            badgeClass = 'badge-candidate';
-            dateInfo = item.fvg_date;
+            // 監視銘柄の日付フォーマットも変更
+            dateInfo = item.fvg_date ? item.fvg_date.split('T')[0] : '';
         }
 
         symbolItem.innerHTML = `
             <span class="hwb-symbol-name">${item.symbol}</span>
-            <span class="hwb-symbol-badge ${badgeClass}">${badgeText}</span>
             ${rsRatingHtml}
             <span class="hwb-symbol-date">${dateInfo}</span>
         `;
