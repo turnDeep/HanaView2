@@ -639,9 +639,21 @@ async function showDashboard() {
                 signalsByDate[date].forEach(signal => {
                     const item = document.createElement('div');
                     item.className = 'hwb-symbol-item';
+
+                    // 日付フォーマットを修正（T00:00:00を削除）
+                    const dateInfo = signal.breakout_date ? signal.breakout_date.split('T')[0] : '';
+
+                    // RS Ratingの表示
+                    let rsRatingHtml = '';
+                    if (signal.rs_rating !== undefined && signal.rs_rating !== null) {
+                        const rsClass = this.getRSClass(signal.rs_rating);
+                        rsRatingHtml = `<span class="hwb-rs-badge ${rsClass}">RS ${signal.rs_rating}</span>`;
+                    }
+
                     item.innerHTML = `
                         <span class="hwb-symbol-name">${ticker}</span>
-                        <span class="hwb-symbol-badge badge-signal">ブレイクアウト</span>
+                        ${rsRatingHtml}
+                        <span class="hwb-symbol-date">${dateInfo}</span>
                     `;
                     list.appendChild(item);
                 });
