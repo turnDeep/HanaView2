@@ -715,15 +715,15 @@ async function showDashboard() {
                 </div>
                 <div class="hwb-summary-grid">
                     <div>
-                        <h3>🚀 当日ブレイクアウト</h3>
+                        <h3>当日ブレイクアウト</h3>
                         <p class="summary-count">${todayCount}</p>
                     </div>
                     <div>
-                        <h3>📈 直近5営業日</h3>
+                        <h3>直近5営業日</h3>
                         <p class="summary-count">${recentCount}</p>
                     </div>
                     <div>
-                        <h3>📍 監視銘柄</h3>
+                        <h3>監視銘柄</h3>
                         <p class="summary-count">${candidatesCount}</p>
                     </div>
                 </div>
@@ -735,13 +735,13 @@ async function showDashboard() {
             const { signals_today = [], signals_recent = [], candidates = [] } = this.summaryData.summary;
 
             if (signals_today.length > 0) {
-                this.renderSymbolList(container, '🚀 当日ブレイクアウト', signals_today, 'signal_today');
+                this.renderSymbolList(container, '当日ブレイクアウト', signals_today, 'signal_today');
             }
             if (signals_recent.length > 0) {
-                this.renderSymbolList(container, '📈 直近5営業日以内', signals_recent, 'signal_recent');
+                this.renderSymbolList(container, '直近5営業日以内', signals_recent, 'signal_recent');
             }
             if (candidates.length > 0) {
-                this.renderSymbolList(container, '📍 監視銘柄', candidates, 'candidate');
+                this.renderSymbolList(container, '監視銘柄', candidates, 'candidate');
             }
         }
 

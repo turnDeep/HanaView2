@@ -849,7 +849,7 @@ body {
 
 .hwb-summary-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    grid-template-columns: repeat(3, 1fr);
     gap: 15px;
     margin-top: 20px;
 }
@@ -863,7 +863,7 @@ body {
 
 .hwb-summary-grid h3 {
     margin: 0 0 10px 0;
-    font-size: 1.1em;
+    font-size: 0.9em;
     color: var(--text-primary);
 }
 
