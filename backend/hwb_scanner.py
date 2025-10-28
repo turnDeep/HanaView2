@@ -794,6 +794,24 @@ class HWBScanner:
         
         return summary_results
 
+    def _create_summary_from_existing(self, existing_data: dict, latest_market_date: datetime.date) -> List[Dict]:
+        """
+        既存データから最新の日付基準でサマリーを再作成
+
+        Args:
+            existing_data: 既存の銘柄分析データ
+            latest_market_date: 最新の市場日付
+
+        Returns:
+            サマリーリスト
+        """
+        signals = existing_data.get('signals', [])
+        fvgs = existing_data.get('fvgs', [])
+        symbol = existing_data.get('symbol', 'UNKNOWN')
+
+        # _create_summary_from_dataを再利用
+        return self._create_summary_from_data(symbol, signals, fvgs, latest_market_date)
+
     def _save_symbol_data_with_chart(self, symbol: str, symbol_data: dict,
                                  df_daily: pd.DataFrame, df_weekly: pd.DataFrame):
         """
