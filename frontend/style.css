@@ -1120,10 +1120,45 @@ body {
     color: white;
 }
 
+/* 出来高バッジのスタイル */
+.hwb-volume-badge {
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-weight: 600;
+    font-size: 0.8em;
+    margin: 0 5px;
+    white-space: nowrap;
+    border: 2px solid;
+}
+
+.vol-strong {
+    border-color: #2196F3;  /* 濃い青枠 */
+    background-color: rgba(33, 150, 243, 0.1);
+    color: #2196F3;
+}
+
+.vol-moderate {
+    border-color: #90CAF9;  /* 薄い青枠 */
+    background-color: rgba(144, 202, 249, 0.1);
+    color: #1976D2;
+}
+
+.vol-weak {
+    border-color: #9e9e9e;  /* 灰色枠 */
+    background-color: rgba(158, 158, 158, 0.1);
+    color: #757575;
+}
+
 /* モバイル対応 */
 @media (max-width: 768px) {
     .hwb-rs-badge {
         padding: 3px 8px;
         font-size: 0.75em;
+    }
+
+    .hwb-volume-badge {
+        padding: 3px 8px;
+        font-size: 0.75em;
+        border-width: 1.5px;
     }
 }

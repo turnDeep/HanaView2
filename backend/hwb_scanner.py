@@ -311,15 +311,82 @@ class HWBAnalyzer:
 
             # bot_hwb.py方式：固定閾値0.1%
             if current['close'] > resistance_high * (1 + BREAKOUT_THRESHOLD):
-                return {
+                breakout_date = df_daily.index[i]
+
+                # 出来高増加率を計算
+                volume_metrics = self._calculate_volume_increase_at_date(df_daily, breakout_date)
+
+                result = {
                     'status': 'breakout',
-                    'breakout_date': df_daily.index[i],
+                    'breakout_date': breakout_date,
                     'breakout_price': current['close'],
                     'resistance_price': resistance_high,
                     'breakout_percentage': (current['close'] / resistance_high - 1) * 100
                 }
-        
+
+                # 出来高情報を追加
+                if volume_metrics:
+                    result['breakout_volume'] = volume_metrics['breakout_volume']
+                    result['avg_volume_20d'] = volume_metrics['avg_volume_20d']
+                    result['volume_increase_pct'] = volume_metrics['volume_increase_pct']
+
+                return result
+
         return None
+
+    def _calculate_volume_increase_at_date(self, df_daily: pd.DataFrame, target_date: pd.Timestamp) -> Optional[Dict]:
+        """
+        ブレイクアウト日の出来高増加率を計算（20日平均との比較）
+
+        Args:
+            df_daily: 日次データ
+            target_date: ブレイクアウト日
+
+        Returns:
+            {
+                'breakout_volume': ブレイクアウト時の出来高,
+                'avg_volume_20d': 20日平均出来高,
+                'volume_increase_pct': 増加率（パーセント）
+            }
+        """
+        try:
+            # volumeカラムの確認
+            if 'volume' not in df_daily.columns:
+                logger.warning(f"'volume' column not found in dataframe. Available columns: {df_daily.columns.tolist()}")
+                return None
+
+            # target_date以前のデータを取得
+            df_historical = df_daily[df_daily.index <= target_date].copy()
+
+            # 最低21日のデータが必要（20日平均を計算するため）
+            if len(df_historical) < 21:
+                logger.debug(f"Insufficient data for volume calculation at {target_date}")
+                return None
+
+            # ブレイクアウト日の出来高
+            breakout_volume = df_historical.iloc[-1]['volume']
+
+            # 20日平均出来高（ブレイクアウト日の前日までの20日間）
+            avg_volume_20d = df_historical.iloc[-21:-1]['volume'].mean()
+
+            if avg_volume_20d == 0 or pd.isna(avg_volume_20d):
+                logger.warning(f"Invalid average volume at {target_date}")
+                return None
+
+            # 増加率を計算（パーセント）
+            volume_increase_pct = ((breakout_volume / avg_volume_20d) - 1) * 100
+
+            logger.debug(f"Volume increase at {target_date}: {volume_increase_pct:.1f}% (breakout: {breakout_volume:,.0f}, avg: {avg_volume_20d:,.0f})")
+
+            return {
+                'breakout_volume': int(breakout_volume),
+                'avg_volume_20d': int(avg_volume_20d),
+                'volume_increase_pct': round(volume_increase_pct, 1)
+            }
+
+        except Exception as e:
+            logger.error(f"Error calculating volume increase: {e}", exc_info=True)
+            return None
 
 
 class HWBScanner:
@@ -722,14 +789,27 @@ class HWBScanner:
         for i in range(start_idx, end_idx):
             current = df_daily.iloc[i]
             if current['close'] > resistance_high * (1 + BREAKOUT_THRESHOLD):
-                return {
+                breakout_date = df_daily.index[i]
+
+                # 出来高増加率を計算
+                volume_metrics = self.analyzer._calculate_volume_increase_at_date(df_daily, breakout_date)
+
+                result = {
                     'status': 'breakout',
-                    'breakout_date': df_daily.index[i],
+                    'breakout_date': breakout_date,
                     'breakout_price': current['close'],
                     'resistance_price': resistance_high,
                     'breakout_percentage': (current['close'] / resistance_high - 1) * 100
                 }
-        
+
+                # 出来高情報を追加
+                if volume_metrics:
+                    result['breakout_volume'] = volume_metrics['breakout_volume']
+                    result['avg_volume_20d'] = volume_metrics['avg_volume_20d']
+                    result['volume_increase_pct'] = volume_metrics['volume_increase_pct']
+
+                return result
+
         return None
 
     def _create_summary_from_data(self, symbol: str, signals: list, fvgs: list,
@@ -761,6 +841,14 @@ class HWBScanner:
                     # ✅ RS Ratingを含める
                     if 'rs_rating' in signal:
                         summary_item['rs_rating'] = signal['rs_rating']
+
+                    # ✅ 出来高情報を含める
+                    if 'volume_increase_pct' in signal:
+                        summary_item['volume_increase_pct'] = signal['volume_increase_pct']
+                    if 'breakout_volume' in signal:
+                        summary_item['breakout_volume'] = signal['breakout_volume']
+                    if 'avg_volume_20d' in signal:
+                        summary_item['avg_volume_20d'] = signal['avg_volume_20d']
 
                     if breakout_date == today:
                         summary_item["signal_type"] = "signal_today"
