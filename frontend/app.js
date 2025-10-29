@@ -650,9 +650,17 @@ async function showDashboard() {
                         rsRatingHtml = `<span class="hwb-rs-badge ${rsClass}">RS ${signal.rs_rating}</span>`;
                     }
 
+                    // 出来高増加率の表示
+                    let volumeHtml = '';
+                    if (signal.volume_increase_pct !== undefined && signal.volume_increase_pct !== null) {
+                        const volClass = this.getVolumeClass(signal.volume_increase_pct);
+                        volumeHtml = `<span class="hwb-volume-badge ${volClass}">Vol +${signal.volume_increase_pct}%</span>`;
+                    }
+
                     item.innerHTML = `
                         <span class="hwb-symbol-name">${ticker}</span>
                         ${rsRatingHtml}
+                        ${volumeHtml}
                         <span class="hwb-symbol-date">${dateInfo}</span>
                     `;
                     list.appendChild(item);
@@ -805,6 +813,8 @@ renderSymbolList(container, title, items, type) {
         let dateInfo = '';
         let rsRatingHtml = '';
 
+        let volumeHtml = '';
+
         if (type === 'signal_today' || type === 'signal_recent') {
             // 日付フォーマットを変更（T00:00:00を削除）
             dateInfo = item.signal_date ? item.signal_date.split('T')[0] : '';
@@ -814,6 +824,12 @@ renderSymbolList(container, title, items, type) {
                 const rsClass = this.getRSClass(item.rs_rating);
                 rsRatingHtml = `<span class="hwb-rs-badge ${rsClass}">RS ${item.rs_rating}</span>`;
             }
+
+            // 出来高増加率の表示
+            if (item.volume_increase_pct !== undefined && item.volume_increase_pct !== null) {
+                const volClass = this.getVolumeClass(item.volume_increase_pct);
+                volumeHtml = `<span class="hwb-volume-badge ${volClass}">Vol +${item.volume_increase_pct}%</span>`;
+            }
         } else {
             // 監視銘柄の日付フォーマットも変更
             dateInfo = item.fvg_date ? item.fvg_date.split('T')[0] : '';
@@ -822,6 +838,7 @@ renderSymbolList(container, title, items, type) {
         symbolItem.innerHTML = `
             <span class="hwb-symbol-name">${item.symbol}</span>
             ${rsRatingHtml}
+            ${volumeHtml}
             <span class="hwb-symbol-date">${dateInfo}</span>
         `;
         list.appendChild(symbolItem);
@@ -837,6 +854,13 @@ getRSClass(rsRating) {
     if (rsRating >= 80) return 'rs-good';       // 青
     if (rsRating >= 70) return 'rs-average';    // 黄
     return 'rs-weak';                           // 灰色
+}
+
+// ✅ 出来高増加率の色分けメソッドを追加
+getVolumeClass(volumeIncreasePct) {
+    if (volumeIncreasePct >= 127) return 'vol-strong';     // 濃い青
+    if (volumeIncreasePct >= 50) return 'vol-moderate';    // 薄い青
+    return 'vol-weak';                                     // 灰色
 }
 
         showStatus(message, type = 'info') {
