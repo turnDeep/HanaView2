@@ -828,7 +828,8 @@ renderSymbolList(container, title, items, type) {
             // 出来高増加率の表示
             if (item.volume_increase_pct !== undefined && item.volume_increase_pct !== null) {
                 const volClass = this.getVolumeClass(item.volume_increase_pct);
-                volumeHtml = `<span class="hwb-volume-badge ${volClass}">Vol +${item.volume_increase_pct}%</span>`;
+                const sign = item.volume_increase_pct > 0 ? '+' : '';
+                volumeHtml = `<span class="hwb-volume-badge ${volClass}">Vol ${sign}${item.volume_increase_pct}%</span>`;
             }
         } else {
             // 監視銘柄の日付フォーマットも変更
