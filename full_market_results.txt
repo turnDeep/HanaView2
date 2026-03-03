@@ -1,0 +1,510 @@
+Running Vectorized Unified Backtest on 2318 tickers...
+Progress: 50/2318 - Trades: 560 - Time: 4s
+Progress: 100/2318 - Trades: 1289 - Time: 8s
+Progress: 150/2318 - Trades: 1881 - Time: 11s
+Progress: 200/2318 - Trades: 2315 - Time: 15s
+Progress: 250/2318 - Trades: 2795 - Time: 18s
+Progress: 300/2318 - Trades: 3581 - Time: 22s
+Progress: 350/2318 - Trades: 3915 - Time: 24s
+Progress: 400/2318 - Trades: 4490 - Time: 28s
+Progress: 450/2318 - Trades: 5038 - Time: 31s
+Progress: 500/2318 - Trades: 5297 - Time: 33s
+Progress: 550/2318 - Trades: 5783 - Time: 36s
+Progress: 600/2318 - Trades: 6348 - Time: 39s
+Progress: 650/2318 - Trades: 6983 - Time: 42s
+Progress: 700/2318 - Trades: 7643 - Time: 46s
+Progress: 750/2318 - Trades: 8041 - Time: 49s
+Progress: 800/2318 - Trades: 8609 - Time: 54s
+HTTP Error 401: {"finance":{"result":null,"error":{"code":"Unauthorized","description":"Invalid Crumb"}}}
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+['COP']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+
+1 Failed download:
+['COP']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+['COP']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+
+1 Failed download:
+['COP']: TypeError("'NoneType' object is not subscriptable")
+['COP']: TypeError("'NoneType' object is not subscriptable")
+['COP']: TypeError("'NoneType' object is not subscriptable")
+['COP']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['COP']: TypeError("'NoneType' object is not subscriptable")
+['COP']: TypeError("'NoneType' object is not subscriptable")
+['CMCSA', 'MDT']: TypeError("'NoneType' object is not subscriptable")
+Progress: 850/2318 - Trades: 8843 - Time: 83s
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+['CRWD', 'DHR']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+['CRWD']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+2 Failed downloads:
+
+2 Failed downloads:
+['CRWD', 'DHR']: TypeError("'NoneType' object is not subscriptable")
+['CRWD', 'DHR']: TypeError("'NoneType' object is not subscriptable")
+['CRWD', 'DHR']: TypeError("'NoneType' object is not subscriptable")
+['CRWD', 'DHR']: TypeError("'NoneType' object is not subscriptable")
+['CRWD', 'DHR']: TypeError("'NoneType' object is not subscriptable")
+['CRWD', 'DHR']: TypeError("'NoneType' object is not subscriptable")
+['CRWD', 'DHR']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['CRWD', 'DHR']: TypeError("'NoneType' object is not subscriptable")
+['CRWD', 'DHR']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['WELL']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['WELL']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['WELL']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['WELL']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+Progress: 900/2318 - Trades: 9027 - Time: 98s
+HTTP Error 401: {"finance":{"result":null,"error":{"code":"Unauthorized","description":"User is unable to access this feature - https://bit.ly/yahoo-finance-api-feedback"}}}
+
+1 Failed download:
+
+1 Failed download:
+['CCCS']: TypeError("argument of type 'NoneType' is not iterable")
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+['CCCS']: TypeError("argument of type 'NoneType' is not iterable")
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+Progress: 950/2318 - Trades: 9274 - Time: 100s
+Progress: 1000/2318 - Trades: 9833 - Time: 103s
+Progress: 1050/2318 - Trades: 10327 - Time: 107s
+
+1 Failed download:
+
+1 Failed download:
+['CEG']: TypeError("'NoneType' object is not subscriptable")
+['CEG']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+Progress: 1100/2318 - Trades: 10741 - Time: 109s
+Progress: 1150/2318 - Trades: 11195 - Time: 112s
+Progress: 1200/2318 - Trades: 11482 - Time: 115s
+Progress: 1250/2318 - Trades: 12012 - Time: 118s
+Progress: 1300/2318 - Trades: 12538 - Time: 121s
+Progress: 1350/2318 - Trades: 12981 - Time: 123s
+Progress: 1400/2318 - Trades: 13478 - Time: 127s
+
+1 Failed download:
+['EMR']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+Progress: 1450/2318 - Trades: 14021 - Time: 137s
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+['EMR']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+['HCA']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['HCA']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['HCA']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['HCA']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['HCA']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['HCA']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['HCA']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['HCA']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+Failed to get ticker 'EQBK' reason: Failed to perform, curl: (28) Connection timed out after 10003 milliseconds. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+
+1 Failed download:
+['MRVL']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+['MRVL']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+
+1 Failed download:
+['MRVL']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+
+1 Failed download:
+['TDG']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['TDG']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['TDG']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+Progress: 1500/2318 - Trades: 14021 - Time: 147s
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+['VST']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['VST']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+
+1 Failed download:
+['VST']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+
+1 Failed download:
+['VST']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+['VST']: TypeError("'NoneType' object is not subscriptable")
+['VST']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+
+1 Failed download:
+['VST']: TypeError("'NoneType' object is not subscriptable")
+
+1 Failed download:
+
+1 Failed download:
+Progress: 1550/2318 - Trades: 14134 - Time: 150s
+HTTP Error 401: {"finance":{"result":null,"error":{"code":"Unauthorized","description":"Invalid Crumb"}}}
+Progress: 1600/2318 - Trades: 14525 - Time: 156s
+Progress: 1650/2318 - Trades: 14875 - Time: 159s
+Progress: 1700/2318 - Trades: 15471 - Time: 161s
+Progress: 1750/2318 - Trades: 15801 - Time: 164s
+Progress: 1800/2318 - Trades: 16147 - Time: 166s
+Progress: 1850/2318 - Trades: 16667 - Time: 170s
+Progress: 1900/2318 - Trades: 17189 - Time: 172s
+Progress: 1950/2318 - Trades: 17839 - Time: 176s
+Progress: 2000/2318 - Trades: 18359 - Time: 180s
+Progress: 2050/2318 - Trades: 18806 - Time: 184s
+Progress: 2100/2318 - Trades: 19197 - Time: 186s
+Progress: 2150/2318 - Trades: 19712 - Time: 189s
+Progress: 2200/2318 - Trades: 20237 - Time: 192s
+Progress: 2250/2318 - Trades: 20813 - Time: 195s
+Progress: 2300/2318 - Trades: 21329 - Time: 199s
+
+Saved 21599 unified trades.
+
+--- Alpha-Synthesis Factor Grid Search ---
+
+Top 10 Configurations by Profit Factor:
+    RS  AD  VCP_Req  ATR  Trades    WinRate        PF   TotalReturn
+31  90  60    False  4.0     600  50.000000  3.271790   9239.592763
+29  90  50     True  5.0    2204  50.181488  3.132249  31494.974155
+28  90  50     True  4.0    2647  49.905553  3.125608  37730.853203
+17  80  50     True  5.0    2836  48.871650  3.012950  38848.223331
+16  80  50     True  4.0    3445  48.417997  2.978596  46355.052890
+27  90  50     True  3.0    2727  48.514851  2.941110  36658.201911
+25  90  50    False  4.0    5041  48.422932  2.910203  69138.401602
+26  90  50    False  5.0    4458  48.429789  2.897539  61276.931844
+15  80  50     True  3.0    3545  47.672779  2.868902  45905.473660
+5   70  50     True  5.0    3164  46.934260  2.861628  41401.564017
+
+Top 10 Configurations by Win Rate:
+    RS  AD  VCP_Req  ATR  Trades    WinRate        PF   TotalReturn
+29  90  50     True  5.0    2204  50.181488  3.132249  31494.974155
+31  90  60    False  4.0     600  50.000000  3.271790   9239.592763
+28  90  50     True  4.0    2647  49.905553  3.125608  37730.853203
+17  80  50     True  5.0    2836  48.871650  3.012950  38848.223331
+27  90  50     True  3.0    2727  48.514851  2.941110  36658.201911
+26  90  50    False  5.0    4458  48.429789  2.897539  61276.931844
+25  90  50    False  4.0    5041  48.422932  2.910203  69138.401602
+16  80  50     True  4.0    3445  48.417997  2.978596  46355.052890
+15  80  50     True  3.0    3545  47.672779  2.868902  45905.473660
+24  90  50    False  3.0    5155  47.390883  2.791557  67639.813346
+$K: possibly delisted; no timezone found
+$COOP: possibly delisted; no timezone found
+$IPG: possibly delisted; no timezone found
+$ALE: possibly delisted; no timezone found
+$AKRO: possibly delisted; no timezone found
+Failed to get ticker 'KD' reason: Failed to perform, curl: (28) Connection timed out after 10002 milliseconds. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+$KD: possibly delisted; no timezone found
+Failed to get ticker 'KEX' reason: Failed to perform, curl: (28) Connection timed out after 10002 milliseconds. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+$KEX: possibly delisted; no timezone found
+Failed to get ticker 'KMX' reason: Failed to perform, curl: (28) Connection timed out after 10002 milliseconds. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+$KMX: possibly delisted; no timezone found
+Failed to get ticker 'KNF' reason: Failed to perform, curl: (28) Connection timed out after 10002 milliseconds. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+$KNF: possibly delisted; no timezone found
+$LNW: possibly delisted; no price data found  (1d 2015-01-01 -> 2025-12-31) (Yahoo error = "Data doesn't exist for startDate = 1420088400, endDate = 1767157200")
+Failed to get ticker 'KRYS' reason: Failed to perform, curl: (28) Connection timed out after 10002 milliseconds. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+$KRYS: possibly delisted; no timezone found
+$SPR: possibly delisted; no timezone found
+$AMBC: possibly delisted; no timezone found
+$AMRK: possibly delisted; no timezone found
+$ATUS: possibly delisted; no timezone found
+$BHLB: possibly delisted; no timezone found
+$BLDE: possibly delisted; no timezone found
+$BRY: possibly delisted; no timezone found
+$ETNB: possibly delisted; no timezone found
+$GNTY: possibly delisted; no timezone found
+$HBI: possibly delisted; no timezone found
+$HMST: possibly delisted; no timezone found
+$HONE: possibly delisted; no timezone found
+$HSII: possibly delisted; no timezone found
+$IAS: possibly delisted; no price data found  (1d 2015-01-01 -> 2025-12-31)
+$IGT: possibly delisted; no timezone found
+$INFA: possibly delisted; no timezone found
+$KAR: possibly delisted; no timezone found
+$KIND: possibly delisted; no timezone found
+$LAZR: possibly delisted; no timezone found
+$MLNK: possibly delisted; no timezone found
+$MRC: possibly delisted; no timezone found
+$MTSR: possibly delisted; no price data found  (1d 2015-01-01 -> 2025-12-31)
+$NYMT: possibly delisted; no timezone found
+$ODP: possibly delisted; no timezone found
+$PBPB: possibly delisted; no timezone found
+$PGRE: possibly delisted; no timezone found
+$PINC: possibly delisted; no price data found  (1d 2015-01-01 -> 2025-12-31)
+$PRO: possibly delisted; no timezone found
+$SCS: possibly delisted; no timezone found
+$SRDX: possibly delisted; no timezone found
+$TRML: possibly delisted; no timezone found
+$VBTX: possibly delisted; no timezone found
+$VMEO: possibly delisted; no timezone found
+$VRNT: possibly delisted; no price data found  (1d 2015-01-01 -> 2025-12-31)
+$VTLE: possibly delisted; no timezone found
+$WNS: possibly delisted; no timezone found
+$ZIMV: possibly delisted; no timezone found

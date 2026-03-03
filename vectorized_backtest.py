@@ -8,11 +8,9 @@ import os
 pd.options.mode.chained_assignment = None
 
 def get_tickers():
-    if os.path.exists('backend/tickers_sample.csv'):
-        return pd.read_csv('backend/tickers_sample.csv', header=None)[0].tolist()
-    elif os.path.exists('backend/russell3000.csv'):
+    if os.path.exists('backend/russell3000.csv'):
         df = pd.read_csv('backend/russell3000.csv', header=None)
-        return df[0].tolist()[:500]
+        return df[0].tolist()
     return ['AAPL', 'MSFT', 'NVDA', 'TSLA', 'AMZN']
 
 def calc_rs_rating(df):
@@ -173,20 +171,20 @@ def main():
     all_trades = []
     start_time = time.time()
 
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    with ThreadPoolExecutor(max_workers=20) as executor:
         futures = {executor.submit(analyze_ticker_vectorized, t): t for t in tickers}
 
         completed = 0
         for f in as_completed(futures):
             completed += 1
             try:
-                res = f.result(timeout=60)
+                res = f.result(timeout=120)
                 if res:
                     all_trades.extend(res)
             except Exception as e:
                 pass
 
-            if completed % 10 == 0:
+            if completed % 50 == 0:
                 print(f"Progress: {completed}/{len(tickers)} - Trades: {len(all_trades)} - Time: {time.time()-start_time:.0f}s", flush=True)
 
     df_trades = pd.DataFrame(all_trades)
