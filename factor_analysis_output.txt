@@ -1,0 +1,56 @@
+--- Factor Analysis using Random Forest ---
+Accuracy: 0.9864
+
+Classification Report:
+              precision    recall  f1-score   support
+
+           0       0.99      0.99      0.99       490
+           1       0.99      0.98      0.99       464
+
+    accuracy                           0.99       954
+   macro avg       0.99      0.99      0.99       954
+weighted avg       0.99      0.99      0.99       954
+
+
+--- Feature Importances ---
+  Feature  Importance
+AD_Rating    0.349987
+ ATR_Risk    0.342116
+RS_Rating    0.281163
+VCP_DryUp    0.017305
+  Has_FVG    0.007759
+VCP_Tight    0.001670
+
+Saved factor importance plot to factor_importance.png
+
+--- Detailed Factor Edge Analysis ---
+
+RS_Rating:
+  High (>= 54.21): Win Rate = 48.56% (n=2261)
+  Low (< 54.21): Win Rate = 48.39% (n=2236)
+  Edge (High - Low): +0.17%
+
+AD_Rating:
+  High (>= 52.09): Win Rate = 47.87% (n=2390)
+  Low (< 52.09): Win Rate = 46.36% (n=2377)
+  Edge (High - Low): +1.51%
+
+VCP_Tight:
+  True: Win Rate = 47.00% (n=4757)
+  False: Win Rate = 100.00% (n=10)
+  Edge: -53.00%
+
+VCP_DryUp:
+  True: Win Rate = 48.71% (n=2897)
+  False: Win Rate = 44.65% (n=1870)
+  Edge: +4.05%
+
+ATR_Risk:
+  High (>= 5.96): Win Rate = 51.46% (n=2392)
+  Low (< 5.96): Win Rate = 42.74% (n=2375)
+  Edge (High - Low): +8.73%
+
+Has_FVG:
+  True: Win Rate = 47.15% (n=4651)
+  False: Win Rate = 45.69% (n=116)
+  Edge: +1.46%
